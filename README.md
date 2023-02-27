@@ -1,6 +1,6 @@
 Analyses pertaining to the manuscruipt "Microbial colonization programs are structured by breastfeeding and guide healthy respiratory development"
 
-Authors: Liat Shenhav<sup>1,2,3,\*,&</sup>, Kelsey Fehr<sup>4,5,*</sup>, Myrtha E. Reyna6, Charisse Petersen7, Darlene L. Y. Dai7, Ruixue Dai6, 
-Vanessa Breton6, Laura Rossi8, Elinor Simons4,5, Lars Bode9, Catherine J. Field10, Jean S Marshall11, Theo J. Moraes6, P
-iush J. Mandhane12, Stuart E. Turvey7, Padmaja Subbarao6,13~, Michael G. Surette8~, 
-Meghan B. Azad4,5~
+Authors: Liat Shenhav<sup>1,2,3,\*,&</sup>, Kelsey Fehr<sup>4,5,*</sup>, Myrtha E. Reyna<sup>6</sup>, Charisse Petersen<sup>7</sup>, Darlene L. Y. Dai<sup>7</sup>, Ruixue Dai<sup>6</sup>, 
+Vanessa Breton<sup>6</sup>, Laura Rossi<sup>68</sup>, Elinor Simons<sup>4,5</sup>, Lars Bode<sup>9</sup>, Catherine J. Field<sup>10</sup>, Jean S Marshall<sup>11</sup>, Theo J. Moraes<sup>6</sup>, P
+iush J. Mandhane<sup>12</sup>, Stuart E. Turvey<sup>7</sup>, Padmaja Subbarao<sup>6,13 &</sup>, Michael G. Surette<sup>8,&</sup>, 
+Meghan B. Azad<sup>4,5,&</sup>
