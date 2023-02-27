@@ -21,4 +21,4 @@ New York University, New York, NY, USA <br>
 <sup>13</sup>Department of Physiology, University of Toronto, Toronto, ON, Canada <br>
 
 *Co-first authors. <br>
-~Co-corresponding authors: Liat Shenhav lshenhav@rockefeller.edu; Padmaja Subbarao padmaja.subbarao@sickkids.ca; Mike Surette surette@mcmaster.ca ; Meghan Azad meghan.azad@umanitoba.ca.
+&Co-corresponding authors: Liat Shenhav lshenhav@rockefeller.edu; Padmaja Subbarao padmaja.subbarao@sickkids.ca; Mike Surette surette@mcmaster.ca ; Meghan Azad meghan.azad@umanitoba.ca.
