@@ -5,7 +5,7 @@ Vanessa Breton<sup>6</sup>, Laura Rossi<sup>8</sup>, Elinor Simons<sup>4,5</sup>
 iush J. Mandhane<sup>12</sup>, Stuart E. Turvey<sup>7</sup>, Padmaja Subbarao<sup>6,13 &</sup>, Michael G. Surette<sup>8,&</sup>, 
 Meghan B. Azad<sup>4,5,&</sup>
 
-1</sup>The Center for Studies in Physics and Biology, The Rockefeller University, New York, NY, USA
+<sup>1</sup>The Center for Studies in Physics and Biology, The Rockefeller University, New York, NY, USA <br>
 2Institute for systems genetics, Department of Microbiology, New York Grossman School of Medicine, 
 New York University, New York, NY, USA
 3Department of Computer Science, New York University, New York, NY, USA
@@ -19,5 +19,6 @@ New York University, New York, NY, USA
 11Department of Department of Microbiology & Immunology, Dalhousie University, Halifax Nova Scotia, Canada
 12Department of Pediatrics, University of Alberta, Edmonton, AB, Canada
 13Department of Physiology, University of Toronto, Toronto, ON, Canada
+
 *Co-first authors. 
 ~Co-corresponding authors: Liat Shenhav lshenhav@rockefeller.edu; Padmaja Subbarao padmaja.subbarao@sickkids.ca; Mike Surette surette@mcmaster.ca ; Meghan Azad meghan.azad@umanitoba.ca.
