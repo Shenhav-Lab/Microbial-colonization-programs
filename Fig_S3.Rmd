@@ -1,0 +1,1904 @@
+---
+title: "Breastfeeding and asthma are associated with similar colonization patterns (Figure S3)"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setup
+
+```{r, warning=FALSE, message=FALSE}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(ggplot2); packageVersion('ggplot2')
+library(zCompositions); packageVersion('zCompositions')
+library(dplyr); packageVersion('dplyr')  #  cannot load this after plyr or else data_summary does not work. load dplyr first 
+library(plyr); packageVersion('plyr')
+library(cowplot); packageVersion('cowplot')
+library(vegan); packageVersion('vegan')
+library(tidyr); packageVersion('tidyr')
+library(reshape2); packageVersion('reshape2')
+library(lmPerm); packageVersion('lmPerm')
+library(ggsignif); packageVersion('ggsignif')
+
+source("Preprocessing/Functions.R")
+```
+
+
+```{r}
+theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
+```
+
+**Data subsets used**
+Overall data, not longitudinal
+```{r} 
+data_NG2 <- readRDS("Data_subsets/Main_UnRarefied_NasalGut_Subset.rds") # non-rarefied version, for redundancy analysis (alpha-diversity in sample data is still generated from rarefied data)
+
+# Overall data, not longitudinal
+table(sample_data(data_NG2)$SampleType, sample_data(data_NG2)$Visit)
+```
+
+Microbiota Trajectory data
+```{r}
+Nasal_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Nasal_Trajectory_Subset.rds") # Prevalence dataset
+table(sample_data(Nasal_3M1Y_pa_filt)$Visit)
+
+Gut_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Gut_Trajectory_Subset.rds") # Prevalence dataset
+table(sample_data(Gut_3M1Y_pa_filt)$Visit)
+```
+
+```{r} 
+Traj_data_ls <- readRDS("Data_subsets/ALL_Trajectory_Derived_Data.rds") # Derived Trajectory variables for the Trajectory subsets
+```
+
+
+#### 3 Month Nasal microbiota
+```{r}
+py_3m <- subset_samples(data_NG2, Visit == "3 Months" & SampleType == "Nasal")   
+py_3m   
+```
+
+**Remove rare taxa in <= 5% of samples**
+```{r}
+## using prevalence threshold 
+data_3m_filt = filter_taxa(py_3m, function(x) sum(x > 0) > (0.05*length(x)), TRUE) 
+ntaxa(data_3m_filt) 
+```
+
+
+**Exporting data from phyloseq object**
+```{r}
+data_3m <- t(as(otu_table(data_3m_filt), "matrix"))
+
+sdf_3m <- as(sample_data(data_3m_filt), "data.frame") 
+
+tax_3m <- as(tax_table(data_3m_filt), "matrix")
+```
+
+**zero corrections and CLR transformation**
+```{r}
+d_n0_3m <- cmultRepl(data_3m,  label=0, method="CZM", output="p-counts") 
+
+d_clr_3m <- codaSeq.clr(d_n0_3m, samples.by.row=TRUE) 
+```
+
+**Remake phyloseq object**
+```{r}
+otumat_clr <- as.matrix(t(d_clr_3m))
+OTU = otu_table(otumat_clr, taxa_are_rows=TRUE)
+TAX = tax_table(tax_3m) 
+sampledata_3m = sample_data(sdf_3m)
+newPhyseq_clr_3m_sub = phyloseq(OTU, TAX, sampledata_3m)
+newPhyseq_clr_3m_sub
+```
+CLR transformed phyloseq object, 3m nasal: newPhyseq_clr_3m_sub
+
+
+#### 1 Year Nasal microbiota
+```{r}
+py_1y <- subset_samples(data_NG2, Visit == "1 Year" & SampleType == "Nasal")   
+py_1y   
+```
+
+**Remove rare taxa in <= 5% of samples**
+```{r}
+## using prevalence threshold 
+data_1y_filt = filter_taxa(py_1y, function(x) sum(x > 0) > (0.05*length(x)), TRUE) 
+ntaxa(data_1y_filt) 
+```
+
+**Exporting data from phyloseq object**
+```{r}
+data_1y <- t(as(otu_table(data_1y_filt), "matrix"))
+
+sdf_1y <- as(sample_data(data_1y_filt), "data.frame") 
+
+tax_1y <- as(tax_table(data_1y_filt), "matrix")
+```
+
+**zero corrections and CLR transformation**
+```{r}
+d_n0_1y <- cmultRepl(data_1y,  label=0, method="CZM", output="p-counts") 
+
+d_clr_1y <- codaSeq.clr(d_n0_1y, samples.by.row=TRUE) 
+```
+
+
+**Remake phyloseq object**
+```{r}
+otumat_clr <- as.matrix(t(d_clr_1y))
+OTU = otu_table(otumat_clr, taxa_are_rows=TRUE)
+TAX = tax_table(tax_1y) 
+sampledata = sample_data(sdf_1y)
+py_1y_clr_sub = phyloseq(OTU, TAX, sampledata)
+py_1y_clr_sub
+```
+CLR transformed phyloseq object, 1y nasal: py_1y_clr_sub
+
+#### 3 Month Gut microbiota
+```{r}
+py_3m <- subset_samples(data_NG2, Visit == "3 Months" & SampleType == "Gut")   
+py_3m   
+```
+
+**Remove rare taxa in <= 5% of samples**
+```{r}
+## using prevalence threshold
+data_3m_filt = filter_taxa(py_3m, function(x) sum(x > 0) > (0.05*length(x)), TRUE) 
+ntaxa(data_3m_filt) 
+```
+
+
+**Exporting data from phyloseq object**
+```{r}
+data_3m <- t(as(otu_table(data_3m_filt), "matrix"))
+
+sdf_3m <- as(sample_data(data_3m_filt), "data.frame") 
+
+tax_3m <- as(tax_table(data_3m_filt), "matrix")
+```
+
+**zero corrections and CLR transformations**
+```{r}
+d_n0_3m <- cmultRepl(data_3m,  label=0, method="CZM", output="p-counts") 
+
+d_clr_3m <- codaSeq.clr(d_n0_3m, samples.by.row=TRUE) 
+```
+
+**Remake phyloseq object**
+```{r}
+otumat_clr <- as.matrix(t(d_clr_3m))
+OTU = otu_table(otumat_clr, taxa_are_rows=TRUE)
+TAX = tax_table(tax_3m) 
+sampledata_3m = sample_data(sdf_3m)
+newPhyseq_clr_3m_sub_G = phyloseq(OTU, TAX, sampledata_3m)
+newPhyseq_clr_3m_sub_G
+```
+CLR transformed phyloseq object, 3m gut: newPhyseq_clr_3m_sub_G
+
+
+#### 1 Year Gut microbiota
+```{r}
+py_1y <- subset_samples(data_NG2, Visit == "1 Year" & SampleType == "Gut")   
+py_1y   
+```
+
+**Remove rare taxa in <= 5% of samples**
+```{r}
+## using prevalence threshold 
+data_1y_filt = filter_taxa(py_1y, function(x) sum(x > 0) > (0.05*length(x)), TRUE) 
+ntaxa(data_1y_filt) 
+```
+
+**Exporting data from phyloseq object**
+```{r}
+data_1y <- t(as(otu_table(data_1y_filt), "matrix"))
+
+sdf_1y <- as(sample_data(data_1y_filt), "data.frame") 
+
+tax_1y <- as(tax_table(data_1y_filt), "matrix")
+```
+
+**zero corrections and CLR transformations**
+```{r}
+d_n0_1y <- cmultRepl(data_1y,  label=0, method="CZM", output="p-counts") 
+
+d_clr_1y <- codaSeq.clr(d_n0_1y, samples.by.row=TRUE) 
+```
+
+**Remake phyloseq object**
+```{r}
+otumat_clr <- as.matrix(t(d_clr_1y))
+OTU = otu_table(otumat_clr, taxa_are_rows=TRUE)
+TAX = tax_table(tax_1y) 
+sampledata = sample_data(sdf_1y)
+py_1y_clr_sub_G = phyloseq(OTU, TAX, sampledata)
+py_1y_clr_sub_G
+```
+CLR transformed phyloseq object, 1y gut: py_1y_clr_sub_G
+
+
+## Variables to test for static time-points
+```{r}
+Main_vars <- c("BF_status_3m_sampling", "BF_12m_sampling","RE_Virus", "colds_0to3m", "coldsnum_6to12m","Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter", "Season_3m" , "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke","mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy",  "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+```
+
+
+## 3 Month Nasal Microbiota
+
+```{r}
+newPhyseq_clr_3m_sub2 <- subset_samples(newPhyseq_clr_3m_sub, select= c("Observed", "Shannon", Main_vars))
+```
+
+### Sample data and OTU table to use for RDA and alpha-diversity
+```{r}
+## export for RDA and alpha-diversity
+d_clr_3m2<- t(as(otu_table(newPhyseq_clr_3m_sub2), "matrix"))
+sdf_3m2 <- as(sample_data(newPhyseq_clr_3m_sub2), "data.frame")
+
+sdf_3m2_Div <- sdf_3m2 # Sample data including nasal Shannon and observed ASVs variables
+
+sdf_3m2$Observed <- NULL # exclude from sample data used for RDA analysis and differential abundance
+sdf_3m2$Shannon <- NULL # exclude from sample data used for RDA analysis and differential abundance
+```
+
+### Univariate RDA analyses
+```{r} 
+RDA_func2 <- function(x) {rda(d_clr_3m2 ~ x, na.action = "na.omit")}  # x = vector, variable
+RDA_func2
+
+# CHECK that sample data matches otu table (order and sample IDs)
+identical(rownames(d_clr_3m2), rownames(sdf_3m2))
+
+Var_list <- as.list(sdf_3m2) 
+
+# MAKE ALL THE RDA MODELS
+set.seed(9999)
+RDA_tests <- lapply(Var_list, FUN = RDA_func2) 
+
+#TEST EACH MODEL USING ANOVA (ACTUALLY A PERMANOVA FOR RDAS)
+AOV_RDAs <- lapply(RDA_tests, FUN = function(x) {anova(x)}) 
+```
+
+(2) Make a cleaned results table 
+```{r}
+# Dataset name input:
+df_Name = "Microbiota composition (RDA)"
+
+# p-values as data frame
+P_vals_df <- AOV_RDAs %>% lapply(., function(x) {x["Pr(>F)"]}) %>% 
+             bind_rows(., .id = "Variable") %>% .[!grepl("Residual", row.names(.)),]
+
+# R2 data frame
+R2s_df <- RDA_tests %>% lapply(., FUN = function(x) {RsquareAdj(x)$r.squared}) %>% bind_rows(., .id = "column_label")
+R2s_df2 <- as.data.frame(t(R2s_df))
+
+identical(P_vals_df$Variable, row.names(R2s_df2))
+
+# Merge
+P_val_R2 <- data.frame(Variable=P_vals_df$Variable, r.squared=R2s_df2$V1, p.value=P_vals_df$`Pr(>F)`, Variable2 =  df_Name)
+```
+
+### Univariate alpha-diversity analyses
+```{r} 
+# Checks
+
+# factor levels - for the most part the negative / no group should be reference. NOTE that this isn't relevant for the RDA. NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level
+lapply(as.list(sdf_3m2), levels) 
+
+# quick edit to sdf_3m2, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
+sdf_num <- sdf_3m2 %>% select_if(is.numeric)
+sdf_3m2 <- data.frame(subset(sdf_3m2, select = setdiff(colnames(sdf_3m2), colnames(sdf_num))), 
+                      sdf_num)
+
+# dataframes have matching samples in the same orders?
+identical(rownames(sdf_3m2_Div), rownames(sdf_3m2)) # YES, good
+```
+
+(1) Linear model results, obtain p-values and estimates for all variables 
+```{r} 
+# LM function for observed ASVs
+lmp_func_Obs <- function(x) {lmp(sdf_3m2_Div$Observed ~ x, maxIter=10000, na.action = "na.omit")} # Exact tests are not great for large N, too sensitive, using Prob. 
+
+# LM function for Shannon index 
+lmp_func_Shan <- function(x) {lmp(sdf_3m2_Div$Shannon ~ x, maxIter=10000, na.action = "na.omit")}
+
+## Make a list of the variables 
+Var_list <- as.list(sdf_3m2) 
+
+set.seed(9999)
+lmp_Obs <- lapply(Var_list, FUN = lmp_func_Obs) # Assess univariate association of Observed ASVs with each variable 
+
+lmp_Shan <- lapply(Var_list, FUN = lmp_func_Shan) # Assess univariate association of Shannon index with each variable 
+
+
+# OBTAIN P-VALUES and ESTIMATES/R2s
+lmp_Obs_summaries <- lapply(lmp_Obs, FUN= function(x) {summary(x)}) 
+lmp_Shan_summaries <- lapply(lmp_Shan, FUN= function(x) {summary(x)}) 
+
+# OBTAIN CIs (not used here actually)
+lmp_Obs_CIs <- lapply(lmp_Obs, FUN= function(x) {confint(x)})
+lmp_Shan_CIs <- lapply(lmp_Shan, FUN= function(x) {confint(x)}) 
+```
+
+(2) Make a cleaned results table for overall model p-values and R2s results (not extracting beta-estimates for now) 
+```{r}  
+# Observed ASVs
+df_Name <- "Microbiota Richness"
+Input <- lmp_Obs_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Obs <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+```{r}
+# Shannon index
+df_Name <- "Microbiota Diversity"
+Input <- lmp_Shan_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Shan <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+(3) Also extract beta-estimates (along with CI and permuted p-values) - Saving as separate more detailed results table 
+- Observed OTUs
+```{r} 
+# code inputs
+Input_data <- lmp_Obs_summaries
+Input_CIs <- lmp_Obs_CIs
+Input_sdf <- sdf_3m2 # to get factor levels
+df_Name <- "Microbiota Richness"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+- Shannon index
+```{r} 
+# code inputs
+Input_data <- lmp_Shan_summaries
+Input_CIs <- lmp_Shan_CIs
+Input_sdf <- sdf_3m2 # to get factor levels
+df_Name <- "Microbiota Diversity"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+### Combine results
+```{r}
+# R2 & overall p-value results for RDA, richness & diversity
+merged_univar_3M <- rbind(P_val_R2, lmp_P_R2s_Obs, lmp_P_R2s_Shan)
+
+# Alpha-diversity estimates & permuted p-values for richness & diversity models
+merged_div_3M_Ests <- rbind(lmp_coeff_Obs, lmp_coeff_Shan)
+```
+
+
+## 1 year Nasal microbiota
+
+```{r}
+py_1y_clr_sub2 <- subset_samples(py_1y_clr_sub, select= c("Observed", "Shannon", Main_vars))
+```
+
+### Sample data and OTU table to use for RDA and alpha-diversity
+```{r}
+d_clr_1y <- t(as(otu_table(py_1y_clr_sub2), "matrix"))
+sdf_1y <- as(sample_data(py_1y_clr_sub2), "data.frame")
+
+sdf_1y_Div <- sdf_1y # for diversity 
+sdf_1y$Shannon <- NULL
+sdf_1y$Observed <- NULL
+```
+
+
+### Univariate RDA analyses
+
+(1) Analysis
+```{r}
+RDA_func <- function(x) {rda(d_clr_1y ~ x, na.action = "na.omit")}  # x = vector, variable
+RDA_func
+
+# CHECK that sample data matches otu table (order and sample IDs)
+identical(rownames(d_clr_1y), rownames(sdf_1y))
+
+Var_list <- as.list(sdf_1y) 
+
+# MAKE ALL THE RDA MODELS
+set.seed(9999)
+RDA_tests <- lapply(Var_list, FUN = RDA_func) 
+
+#TEST EACH MODEL USING ANOVA (ACTUALLY A PERMANOVA FOR RDAS)
+AOV_RDAs <- lapply(RDA_tests, FUN = function(x) {anova(x)}) 
+```
+
+(2) Make a cleaned results table 
+```{r}
+# Dataset name input:
+df_Name = "Microbiota composition (RDA)"
+
+# p-values as data frame
+P_vals_df <- AOV_RDAs %>% lapply(., function(x) {x["Pr(>F)"]}) %>% 
+             bind_rows(., .id = "Variable") %>% .[!grepl("Residual", row.names(.)),]
+
+# R2 data frame
+R2s_df <- RDA_tests %>% lapply(., FUN = function(x) {RsquareAdj(x)$r.squared}) %>% bind_rows(., .id = "column_label")
+R2s_df2 <- as.data.frame(t(R2s_df))
+
+identical(P_vals_df$Variable, row.names(R2s_df2))
+
+# Merge
+P_val_R2 <- data.frame(Variable=P_vals_df$Variable, r.squared=R2s_df2$V1, p.value=P_vals_df$`Pr(>F)`, Variable2 =  df_Name)
+```
+
+### Univariate alpha-diversity analyses
+```{r} 
+# Checks
+
+# factor levels - for the most part the negative / no group should be reference. NOTE that this isn't relevant for the RDA. NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level
+lapply(as.list(sdf_1y), levels) 
+
+# quick edit to sdf_1y, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
+sdf_num <- sdf_1y %>% select_if(is.numeric)
+sdf_1y <- data.frame(subset(sdf_1y, select = setdiff(colnames(sdf_1y), colnames(sdf_num))), 
+                     sdf_num)
+
+# dataframes have matching samples in the same orders?
+identical(rownames(sdf_1y_Div), rownames(sdf_1y)) # YES, good
+```
+
+(1) Linear model results, obtain p-values and estimates for all variables 
+```{r} 
+# LM function for observed ASVs
+lmp_func_Obs <- function(x) {lmp(sdf_1y_Div$Observed ~ x, maxIter=10000, na.action = "na.omit")} # Exact tests are not great for large N, too sensitive, using Prob. Ca = 0
+
+# LM function for Shannon index 
+lmp_func_Shan <- function(x) {lmp(sdf_1y_Div$Shannon ~ x, maxIter=10000, na.action = "na.omit")}
+
+## Make a list of the 29 variables 
+Var_list <- as.list(sdf_1y) 
+
+set.seed(9999)
+lmp_Obs <- lapply(Var_list, FUN = lmp_func_Obs) # Assess univariate associaiton of Observed ASVs with each variable 
+
+lmp_Shan <- lapply(Var_list, FUN = lmp_func_Shan) # Assess univariate associaiton of Shannon index with each variable 
+
+
+# OBTAIN P-VALUES and ESTIMATES/R2s
+lmp_Obs_summaries <- lapply(lmp_Obs, FUN= function(x) {summary(x)}) 
+lmp_Shan_summaries <- lapply(lmp_Shan, FUN= function(x) {summary(x)}) 
+
+# OBTAIN CIs (not used here actually)
+lmp_Obs_CIs <- lapply(lmp_Obs, FUN= function(x) {confint(x)})
+lmp_Shan_CIs <- lapply(lmp_Shan, FUN= function(x) {confint(x)}) 
+```
+
+(2) Make a cleaned results table for OVERALL model p-values and R2s results 
+```{r}  
+# Observed ASVs
+df_Name <- "Microbiota Richness"
+Input <- lmp_Obs_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Obs <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+```{r}
+# Shannon index
+df_Name <- "Microbiota Diversity"
+Input <- lmp_Shan_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Shan <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+(3) Also extract beta-estimates (along with CI and permuted p-values) - Saving as separate more detailed results table 
+- Observed OTUs
+```{r} 
+# code inputs
+Input_data <- lmp_Obs_summaries
+Input_CIs <- lmp_Obs_CIs
+Input_sdf <- sdf_1y # to get factor levels
+df_Name <- "Microbiota Richness"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+- Shannon index
+```{r} 
+# code inputs
+Input_data <- lmp_Shan_summaries
+Input_CIs <- lmp_Shan_CIs
+Input_sdf <- sdf_1y # to get factor levels
+df_Name <- "Microbiota Diversity"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+### Combine results
+```{r}
+# R2 & overall p-value results for RDA, richness & diversity
+merged_univar_1Y <- rbind(P_val_R2, lmp_P_R2s_Obs, lmp_P_R2s_Shan)
+
+# Alpha-diversity estimates & permuted p-values for richness & diversity models
+merged_div_1Y_Ests <- rbind(lmp_coeff_Obs, lmp_coeff_Shan)
+```
+
+
+
+## 3 Month Gut Microbiota
+
+```{r}
+newPhyseq_clr_3m_sub2 <- subset_samples(newPhyseq_clr_3m_sub_G, select= c("Observed", "Shannon", Main_vars))
+```
+
+### Sample data and OTU table to use for RDA and alpha-diversity
+```{r}
+## export for RDA and alpha-diversity
+d_clr_3m2<- t(as(otu_table(newPhyseq_clr_3m_sub2), "matrix"))
+sdf_3m2 <- as(sample_data(newPhyseq_clr_3m_sub2), "data.frame")
+
+sdf_3m2_Div <- sdf_3m2 # Sample data including nasal shannon and observed ASVs variables
+
+sdf_3m2$Observed <- NULL # exclude from sample data used for RDA analysis and differential abundance
+sdf_3m2$Shannon <- NULL # exclude from sample data used for RDA analysis and differential abundance
+```
+
+### Univariate RDA analyses 
+```{r} 
+RDA_func2 <- function(x) {rda(d_clr_3m2 ~ x, na.action = "na.omit")}  # x = vector, variable
+RDA_func2
+
+# CHECK that sample data matches otu table (order and sample IDs)
+identical(rownames(d_clr_3m2), rownames(sdf_3m2))
+
+Var_list <- as.list(sdf_3m2) 
+
+# MAKE ALL THE RDA MODELS
+set.seed(9999)
+RDA_tests <- lapply(Var_list, FUN = RDA_func2) 
+
+#TEST EACH MODEL USING ANOVA (ACTUALLY A PERMANOVA FOR RDAS)
+AOV_RDAs <- lapply(RDA_tests, FUN = function(x) {anova(x)}) 
+```
+
+(2) Make a cleaned results table 
+```{r}
+# Dataset name input:
+df_Name = "Microbiota composition (RDA)"
+
+# p-values as data frame
+P_vals_df <- AOV_RDAs %>% lapply(., function(x) {x["Pr(>F)"]}) %>% 
+             bind_rows(., .id = "Variable") %>% .[!grepl("Residual", row.names(.)),]
+
+# R2 data frame
+R2s_df <- RDA_tests %>% lapply(., FUN = function(x) {RsquareAdj(x)$r.squared}) %>% bind_rows(., .id = "column_label")
+R2s_df2 <- as.data.frame(t(R2s_df))
+
+identical(P_vals_df$Variable, row.names(R2s_df2))
+
+# Merge
+P_val_R2 <- data.frame(Variable=P_vals_df$Variable, r.squared=R2s_df2$V1, p.value=P_vals_df$`Pr(>F)`, Variable2 =  df_Name)
+```
+
+### Univariate alpha-diversity analyses
+```{r} 
+# Checks
+
+# factor levels - for the most part the negative / no group should be reference. NOTE that this isn't relevant for the RDA. NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level
+lapply(as.list(sdf_3m2), levels) 
+
+# quick edit to sdf_3m2, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
+sdf_num <- sdf_3m2 %>% select_if(is.numeric)
+sdf_3m2 <- data.frame(subset(sdf_3m2, select = setdiff(colnames(sdf_3m2), colnames(sdf_num))), 
+                     sdf_num)
+
+# dataframes have matching samples in the same orders?
+identical(rownames(sdf_3m2_Div), rownames(sdf_3m2)) # YES, good
+```
+
+(1) Linear model results, obtain p-values and estimates for all variables 
+```{r, include=FALSE} 
+# LM function for observed ASVs
+lmp_func_Obs <- function(x) {lmp(sdf_3m2_Div$Observed ~ x, maxIter=10000, na.action = "na.omit")}
+
+# LM function for Shannon index 
+lmp_func_Shan <- function(x) {lmp(sdf_3m2_Div$Shannon ~ x, maxIter=10000, na.action = "na.omit")}
+
+## Make a list of the variables 
+Var_list <- as.list(sdf_3m2) 
+
+set.seed(9999)
+lmp_Obs <- lapply(Var_list, FUN = lmp_func_Obs) # Assess univariate association of Observed ASVs with each variable 
+
+lmp_Shan <- lapply(Var_list, FUN = lmp_func_Shan) # Assess univariate association of Shannon index with each variable 
+
+
+# OBTAIN P-VALUES and ESTIMATES/R2s
+lmp_Obs_summaries <- lapply(lmp_Obs, FUN= function(x) {summary(x)}) 
+lmp_Shan_summaries <- lapply(lmp_Shan, FUN= function(x) {summary(x)}) 
+
+# OBTAIN CIs (not used here actually)
+lmp_Obs_CIs <- lapply(lmp_Obs, FUN= function(x) {confint(x)})
+lmp_Shan_CIs <- lapply(lmp_Shan, FUN= function(x) {confint(x)}) 
+```
+
+
+(2) Make a cleaned results table for OVERALL model p-values and R2s results 
+```{r}  
+# Observed ASVs
+df_Name <- "Microbiota Richness"
+Input <- lmp_Obs_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Obs <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+```{r}
+# Shannon index
+df_Name <- "Microbiota Diversity"
+Input <- lmp_Shan_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Shan <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+(3) Also extract beta-estimates (along with CI and permuted p-values) - Saving as separate more detailed results table 
+- Observed OTUs
+```{r} 
+# code inputs
+Input_data <- lmp_Obs_summaries
+Input_CIs <- lmp_Obs_CIs
+Input_sdf <- sdf_3m2 # to get factor levels
+df_Name <- "Microbiota Richness"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+- Shannon index
+```{r} 
+# code inputs
+Input_data <- lmp_Shan_summaries
+Input_CIs <- lmp_Shan_CIs
+Input_sdf <- sdf_3m2 # to get factor levels
+df_Name <- "Microbiota Diversity"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+### Combine results
+```{r}
+# R2 & overall p-value results for RDA, richness & diversity
+merged_univar_3M_G <- rbind(P_val_R2, lmp_P_R2s_Obs, lmp_P_R2s_Shan)
+
+# Alpha-diversity estimates & permuted p-values for richness & diversity models
+merged_div_3M_Est_G <- rbind(lmp_coeff_Obs, lmp_coeff_Shan)
+```
+
+
+## 1 year Gut microbiota
+
+```{r}
+py_1y_clr_sub2 <- subset_samples(py_1y_clr_sub_G, select= c("Observed", "Shannon", Main_vars))
+```
+
+### Sample data and OTU table to use for RDA and alpha-diversity
+```{r}
+d_clr_1y <- t(as(otu_table(py_1y_clr_sub2), "matrix"))
+sdf_1y <- as(sample_data(py_1y_clr_sub2), "data.frame")
+
+sdf_1y_Div <- sdf_1y # for diversity 
+sdf_1y$Shannon <- NULL
+sdf_1y$Observed <- NULL
+```
+
+
+### Overall Univariate RDA analyses
+
+(1) Analysis
+```{r}
+RDA_func <- function(x) {rda(d_clr_1y ~ x, na.action = "na.omit")}  # x = vector, variable
+
+# CHECK that sample data matches otu table (order and sample IDs)
+identical(rownames(d_clr_1y), rownames(sdf_1y))
+
+Var_list <- as.list(sdf_1y) 
+
+# MAKE ALL THE RDA MODELS
+set.seed(9999)
+RDA_tests <- lapply(Var_list, FUN = RDA_func) 
+
+#TEST EACH MODEL USING ANOVA (ACTUALLY A PERMANOVA FOR RDAS)
+AOV_RDAs <- lapply(RDA_tests, FUN = function(x) {anova(x)}) 
+```
+
+(2) Make a cleaned results table 
+```{r}
+# Dataset name input:
+df_Name = "Microbiota composition (RDA)"
+
+# p-values as data frame
+P_vals_df <- AOV_RDAs %>% lapply(., function(x) {x["Pr(>F)"]}) %>% 
+             bind_rows(., .id = "Variable") %>% .[!grepl("Residual", row.names(.)),]
+
+# R2 data frame
+R2s_df <- RDA_tests %>% lapply(., FUN = function(x) {RsquareAdj(x)$r.squared}) %>% bind_rows(., .id = "column_label")
+R2s_df2 <- as.data.frame(t(R2s_df))
+
+identical(P_vals_df$Variable, row.names(R2s_df2))
+
+# Merge
+P_val_R2 <- data.frame(Variable=P_vals_df$Variable, r.squared=R2s_df2$V1, p.value=P_vals_df$`Pr(>F)`, Variable2 =  df_Name)
+```
+
+### Univariate alpha-diversity analyses
+```{r} 
+# Checks
+
+# factor levels - for the most part the negative / no group should be reference. NOTE that this isn't relevant for the RDA. NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level
+lapply(as.list(sdf_1y), levels) 
+
+# quick edit to sdf_1y, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
+sdf_num <- sdf_1y %>% select_if(is.numeric)
+sdf_1y <- data.frame(subset(sdf_1y, select = setdiff(colnames(sdf_1y), colnames(sdf_num))), 
+                     sdf_num)
+
+# dataframes have matching samples in the same orders?
+identical(rownames(sdf_1y_Div), rownames(sdf_1y)) # YES, good
+```
+
+(1) Linear model results, obtain p-values and estimates for all variables 
+```{r} 
+# LM function for observed ASVs
+lmp_func_Obs <- function(x) {lmp(sdf_1y_Div$Observed ~ x, maxIter=10000, na.action = "na.omit")} # Exact tests are not great for large N, too sensitive, using Prob.
+
+# LM function for Shannon index 
+lmp_func_Shan <- function(x) {lmp(sdf_1y_Div$Shannon ~ x, maxIter=10000, na.action = "na.omit")}
+
+## Make a list of the 29 variables 
+Var_list <- as.list(sdf_1y) 
+
+set.seed(9999)
+lmp_Obs <- lapply(Var_list, FUN = lmp_func_Obs) # Assess univariate association of Observed ASVs with each variable 
+
+lmp_Shan <- lapply(Var_list, FUN = lmp_func_Shan) # Assess univariate association of Shannon index with each variable 
+
+# OBTAIN P-VALUES and ESTIMATES/R2s
+lmp_Obs_summaries <- lapply(lmp_Obs, FUN= function(x) {summary(x)}) 
+lmp_Shan_summaries <- lapply(lmp_Shan, FUN= function(x) {summary(x)}) 
+
+# OBTAIN CIs (not used here actually)
+lmp_Obs_CIs <- lapply(lmp_Obs, FUN= function(x) {confint(x)})
+lmp_Shan_CIs <- lapply(lmp_Shan, FUN= function(x) {confint(x)}) 
+```
+
+
+(2) Make a cleaned results table for OVERALL model p-values and R2s results 
+```{r}  
+# Observed ASVs
+df_Name <- "Microbiota Richness"
+Input <- lmp_Obs_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Obs <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+```{r}
+# Shannon index
+df_Name <- "Microbiota Diversity"
+Input <- lmp_Shan_summaries
+
+# R2
+lmp_r2_df <- Input %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "Variable")
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_P_Vals_df <- Input %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Variable")
+
+lmp_P_R2s_Shan <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value, Variable2=df_Name)
+```
+
+(3) Also extract beta-estimates (along with CI and permuted p-values) - Saving as separate more detailed results table 
+- Observed OTUs
+```{r} 
+# code inputs
+Input_data <- lmp_Obs_summaries
+Input_CIs <- lmp_Obs_CIs
+Input_sdf <- sdf_1y # to get factor levels
+df_Name <- "Microbiota Richness"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+- Shannon index
+```{r} 
+# code inputs
+Input_data <- lmp_Shan_summaries
+Input_CIs <- lmp_Shan_CIs
+Input_sdf <- sdf_1y # to get factor levels
+df_Name <- "Microbiota Diversity"
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Variable")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Variable=lmp_coeff_df$Variable, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL
+colnames(lmp_coeff_df2) <- c("Variable", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$Variable) # the first coefficient will also always have a Variable that isn't a duplicate so...
+
+### So fast/lazy way to exclude intercept is to only keep rows where Variable IS a duplicate
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(Variable))
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### Remove the last level (and need to do a few things to get it into a dataframe with two columns, and Variable matching lmp_coeff_df3)
+levels_noRef <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]} )
+
+levels_noRef_df <- bind_rows( lapply( levels_noRef, function(x) {as.data.frame(x)} ), .id = "Variable" )
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first Variables of lmp_coeff_df3 (that refer to cateogircal variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df3[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) # good, none are false
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars
+lmp_coeff_df3$Comparison_group <- c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))) # ncol(sdf_num) = # of numeric variables 
+
+# Add reference group to dataset too
+Ref_level <- lapply( lapply(Input_sdf[], levels),
+                        function(x) {x[length(x)]} )
+Ref_level_df <- bind_rows( lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable" )
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by Variable and reference group is replicated where Variable (the factor) is the same in the data
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Ref_level_df, all = TRUE, by= "Variable")
+
+
+# ADD CIs
+
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Variable") %>% subset(., Var1 != "(Intercept)")
+
+# Important to order by Variable and then Var1 to get the same order as seen in lmp_coeff_df4
+lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
+
+## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+# CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
+```
+
+
+### Combine results
+```{r}
+# R2 & overall p-value results for RDA, richness & diversity
+merged_univar_1Y_G <- rbind(P_val_R2, lmp_P_R2s_Obs, lmp_P_R2s_Shan)
+
+# Alpha-diversity estimates & permuted p-values for richness & diversity models
+merged_div_1Y_Est_G <- rbind(lmp_coeff_Obs, lmp_coeff_Shan)
+```
+
+
+## Nasal & Gut Trajectories
+Traj data that was in sdf_forAllTrajs & GN_3m1y_all_traj - have the same row names, are now in Traj_data_ls 
+
+### Variables to test for Trajectories
+```{r}
+# Main metadata variables to test
+Main_vars_Traj <- c("BF_status_3m_sampling", "BF_12m_sampling", "RE_Virus_1y", "RE_Virus_3m", "colds_0to3m", "coldsnum_6to12m", "Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter","Season_3m", "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke",  "mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy", "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+
+### List of Trajectory summary variables to be used for these analysis
+NG_summary <- c("Early_N1y3m", "Late_N1y3m", "Persistent_N1y3m", 
+                "Early_G1y3m", "Late_G1y3m", "Persistent_G1y3m", 
+                "Shannon_N1y3m", "Observed_N1y3m", "Shannon_G1y3m", "Observed_G1y3m") 
+```
+
+rows are just left NA for participants without nasal trajectory data and same for gut, these will be removed automatically on a per-analysis basis so can analyze everything together. Sample size will be ~ 1545 for nasal and 555 for gut 
+```{r} 
+sdf_forAllTrajs_sub <- subset(Traj_data_ls$Metadata, select=Main_vars_Traj)
+dim(sdf_forAllTrajs_sub)
+
+GN_3m1y_all_traj_sub <- subset(Traj_data_ls$Trajectories_Nasal_to181_Gut_at182, select=NG_summary) # also analyzing individual timepoint richness in this subset to see how big of a difference this makes on the results - to use the same set of individuals for individual timepoint vs trajectory analysis 
+
+
+identical(row.names(sdf_forAllTrajs_sub), row.names(GN_3m1y_all_traj_sub))
+
+# confirmation that the sample sizes for these tests will be what we expect it to be despite the merging of nasal and gut data:
+lapply(GN_3m1y_all_traj_sub, function(x){ sum(!is.na(x))})
+```
+
+### Univariate tests for diversity trajectory & colonization patterns
+```{r} 
+# Checks
+
+# factor levels - for the most part the negative / no group should be reference. NOTE that this isn't relevant for the RDA. NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level
+lapply(as.list(sdf_forAllTrajs_sub), levels) 
+
+# quick edit to sdf_forAllTrajs_sub, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
+sdf_num <- sdf_forAllTrajs_sub %>% select_if(is.numeric)
+sdf_forAllTrajs_sub <- data.frame(subset(sdf_forAllTrajs_sub, select = setdiff(colnames(sdf_forAllTrajs_sub), colnames(sdf_num))), 
+                     sdf_num)
+
+# dataframes have matching samples in the same orders?
+identical(rownames(GN_3m1y_all_traj_sub), rownames(sdf_forAllTrajs_sub)) # YES, good
+```
+
+
+(1) Linear model results, obtain p-values and estimates for all variables
+```{r, include=FALSE}  
+# Inputs & checks
+Y <- as.data.frame(t(GN_3m1y_all_traj_sub))
+X <- sdf_forAllTrajs_sub
+
+# LMP function
+lmp_func <- function(x, n) {lmp(x ~ n, maxIter=10000, na.action = "na.omit")} # Exact tests are not great for large N, too sensitive, using Prob. Ca = 0
+
+n_y <- nrow(Y) # number of y vars
+
+# Tabels have matching samples
+identical(colnames(Y), rownames(X))
+
+# Main code
+###  Using mapply to replicate this function across to lists. If we had two lists (one for y and one for variables) and they were the same length, the FIRST ASV will be tested against the FIRST varible, SECOND ASV against SECOND variable and so forth. We want to test ALL combiinations of y and variables - therefore we need to start with a 'master list' of all ASV-variabel combinations  
+
+# Visualize comparisons
+y <- rownames(Y)
+Variables <- colnames(X)
+
+### The crossing function in tidyr is pretty cool, should work well
+combinations <- crossing(y, Variables)
+
+# Make a feature table with each y var replicated xx times as shown in combinations
+### Merge Automatically replicates each ASV as shown in combinations, excellent.
+Y$y <- rownames(Y) ## doing b/c rownames aren't maintained after merge
+combinations_table <- merge(combinations, Y, by="y", all.x = TRUE)
+nrow(combinations_table) == nrow(combinations) ## quick check
+
+# Make each y replicate unqiue by appending a number at the end - (remember this was done and remove later on)
+combinations_table$y <- make.unique(combinations_table$y)
+
+# Make names rownames and remove the y vars and Variables columns
+row.names(combinations_table) <- combinations_table$y
+
+# Order of y and variables that will be tests - save for later (use in next chunk).
+Variable_check <- data.frame(y_var=combinations_table$y, Variable=rep(colnames(X), n_y))
+
+combinations_table$y <- NULL
+combinations_table$Variables <- NULL
+
+
+# transpose, y as column names
+combinations_table2 <- as.data.frame(t(combinations_table))
+ncol(combinations_table2) == n_y*length(Variables) # Check - Each y is replicated x times 
+
+
+## Get this dataframe of y into a list 
+y_list <- as.list(combinations_table2)
+
+## Make a list of variables and replicate that list y times
+Var_list <- as.list(X) 
+Var_list_rep <- rep(Var_list, n_y)
+###str(Var_list_rep) # # Each variable is its own vector, 29 vars * 14 = 406 vectors
+
+
+# LOOP - TEST ALL VARIABLES ON EACH microbiota trajectory variable (gut and nasal) 
+set.seed(9999)
+lmp_data <- mapply(lmp_func, x=y_list, n=Var_list_rep, SIMPLIFY = FALSE, USE.NAMES = TRUE) 
+
+# OBTAIN P-VALUES and ESTIMATES/R2s
+lmp_data_summaries <- lapply(lmp_data, FUN= function(x) {summary(x)}) 
+
+# OBTAIN CIs 
+lmp_data_CIs <- lapply(lmp_data, FUN= function(x) {confint(x)}) 
+```
+
+(2) Make a cleaned results table for OVERALL model p-values and R2s results 
+```{r}  
+# R2 datafrmae
+lmp_r2_df <- lmp_data_summaries %>% lapply(., function(x) {x["r.squared"]}) %>% bind_rows(., .id = "y_var")
+
+# P values
+## use the pf function on f statisitc to calc p.value
+lm_P_Vals_df <- lmp_data_summaries %>% lapply(., function(x) {x[["fstatistic"]]}) %>% 
+           lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "y_var")
+
+
+
+lmp_P_R2s <- data.frame(lmp_r2_df, p.value=lm_P_Vals_df$value)
+
+# ADD in Variable names, order in lmp_P_R2s changed, need to use the 'linker' df made in previous chunk, Variable_check. Each ASV replicate corresponds to a different comparison. 
+lmp_P_R2s1 <- merge(lmp_P_R2s, Variable_check, by="y_var") 
+
+
+## Make current y_var ID rownames (still unique)
+row.names(lmp_P_R2s1) <- lmp_P_R2s$y_var
+
+## Make the y_var column the original IDs by removing the .[number] IF at the end of the ID 
+lmp_P_R2s1$Variable2 <- lmp_P_R2s1$y_var %>% gsub("\\.\\d$", "", .) %>% gsub("\\.\\d\\d$", "", .)
+
+lmp_P_R2s1$y_var <- NULL
+
+Summary_Traj_res <- lmp_P_R2s1
+```
+
+
+(3) Also decided to extract beta-estimates (along with the CI and permuted p-values) - Saving as separate more detailed results table
+```{r} 
+# inputs
+Input_data <- lmp_data_summaries
+Input_CIs <- lmp_data_CIs
+Input_sdf <- sdf_forAllTrajs_sub # to get factor levels
+n_y <- dim(Y)[1] 
+
+# main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "y_var") 
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(y_var=lmp_coeff_df$y_var, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL # remove number of iterations
+colnames(lmp_coeff_df2) <- c("y_var", "Estimate","perm_p_value")
+
+## The first coefficient for every group will always be the Intercept, so that can be removed
+duplicated(lmp_coeff_df2$y_var)
+
+lmp_coeff_df3 <- subset(lmp_coeff_df2, duplicated(y_var))
+
+# Addition to code. ADD IN Variable names, will be in the same order that tests were done in HOWEVER, order in lmp_P_R2s changed, need to use the 'linker' dataset made in previous chunk, Variable_check. 
+
+## Also, want to keep row.names for future reference, these are removed in merge so adding as column (want to keep as a unique identifier to determine what the order was and how it changed before/after this merge)
+lmp_coeff_df3$Row.names <- row.names(lmp_coeff_df3) ## need to keep rownames for a below step
+lmp_coeff_df4 <- merge(lmp_coeff_df3, Variable_check, by="y_var") 
+
+
+### NOTE that lmp is different than lm - reference group is the Last rather than the first group. And the first estimate shown is the first level, followed by the second, etc (depending on number of levels)
+
+## Go back to original dataset to Confirm the reference group and add Group labels to beta-estimates
+## first level is first estimate per-group for lmp, and last group doesn't have a estimate b/c it's the reference group for lmp. 
+### so Remove the last level (and need to do a few things to get it into a dataframe with two columns, and y_var matching lmp_coeff_df4)
+levels_noRef <- lapply(lapply(Input_sdf[], levels),
+                        function(x) {x[-length(x)]})
+
+levels_noRef_df <- bind_rows(lapply(levels_noRef, function(x) {as.data.frame(x)}), .id = "Variable") # id, "Variable" is the name of column in lmp_coeff_df4 used for independent var now. x is the comparison group (not reference group)
+
+## note that the numeric factors will not have levels and not be in levels_noRef_df, these were placed at the end of the data. But the first column_labels of lmp_coeff_df4 (that refer to categorical variables) should match those in levels_noRef_df exactly, their order too 
+### check that this is true
+table(lmp_coeff_df4[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) 
+#### FALSE - is not TRUE because it's reordered during the added merge in making lmp_coeff_df3 - Must get lmp_coeff_df4 back to its original order based on the order of unique Row.names before merge
+lmp_coeff_df5 <- lmp_coeff_df4[match(lmp_coeff_df3$Row.names, lmp_coeff_df4$Row.names),]
+
+### re-check
+table(lmp_coeff_df5[1:(dim(levels_noRef_df)[1]),]$Variable == levels_noRef_df$Variable) ## Good, this worked
+
+
+# Can use levels_noRef_df to add comparison groups for estimates of categorical vars - EDITED this code vs previous version. This is repeated over the n_y number of dependent variables these independent variables were tested against.  
+lmp_coeff_df5$Comparison_group <- rep(c(levels_noRef_df$x, rep("Numeric", ncol(sdf_num))), n_y) # ncol(sdf_num) = # of numeric variables 
+
+
+# Add reference group to dataset too
+Ref_level <- lapply(lapply(Input_sdf[], levels),
+                   function(x) {x[length(x)]})
+
+Ref_level_df <- bind_rows(lapply(Ref_level, function(x) {as.data.frame(x)}), .id = "Variable")  # id, "Variable" is the name of column in lmp_coeff_df4 used for independent var now.
+colnames(Ref_level_df) <- c("Variable", "Reference_group")
+
+# too add this column, need to merge by column_label and reference group is replicated where column_label (the factor) is the same in the data
+lmp_coeff_df6 <- merge(lmp_coeff_df5, Ref_level_df, all = TRUE, by= "Variable")
+
+## want to re-order after merge again - prefer the original order 
+lmp_coeff_df6 <- lmp_coeff_df6[match(lmp_coeff_df3$Row.names, lmp_coeff_df6$Row.names),]
+
+
+# ADD CIs
+## make normal dataset
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "column_label") %>% subset(., Var1 != "(Intercept)")
+
+# Since lmp_coeff_df6 was reordered after merge, should be in the same order as lmp_CIs_df2 now, double check this
+
+## Split data by Var2 and merge with lmp_coeff_df6, these results will be in the same order as lmp_coeff_df6 and same length after this
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff_Traj <- data.frame(lmp_coeff_df6, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value)
+
+# CHECK and clean up data, compare column_label of datasets, etc - should be in the same order.
+## need to removing end numbers that made each row unique 
+lmp_coeff_Traj$Variable2 <- gsub("\\.\\d$|\\.\\d\\d$", "", lmp_coeff_Traj$y_var)
+
+## no longer need rownames or y_var
+lmp_coeff_Traj$Row.names <- NULL
+lmp_coeff_Traj$y_var <- NULL
+## extra, just making rownames sequence
+row.names(lmp_coeff_Traj) <- seq(1, dim(lmp_coeff_Traj)[1])
+```
+
+### Merge and save beta-estimate & permutation p-values (Merge and save R2 and regular p-values in below chunks when making Fig 1C)
+Merge R2's and main P-value results
+```{r}
+## Nasal individual tps
+merged_univar_1Y$Dataset <- "1 Year"
+merged_univar_3M$Dataset <- "3 Months"
+univar_Overall_Summ_01 <- rbind(merged_univar_3M, merged_univar_1Y)
+univar_Overall_Summ_01$SampleType <- "Nasal"
+
+## Gut individual tps
+merged_univar_1Y_G$Dataset <- "1 Year"
+merged_univar_3M_G$Dataset <- "3 Months"
+univar_Overall_Summ_G <- rbind(merged_univar_3M_G, merged_univar_1Y_G)
+univar_Overall_Summ_G$SampleType <- "Gut"
+
+# Trajectories
+Summary_Traj_res$SampleType <- ifelse(grepl("_N",Summary_Traj_res$Variable2)==TRUE, "Nasal", "Gut")
+Summary_Traj_res$Dataset <- "Trajectories"
+
+## Merge all R2 and overall p-vals
+univar_Overall_Summ_NG <- rbind(univar_Overall_Summ_01, univar_Overall_Summ_G, Summary_Traj_res)
+
+univar_Overall_Summ_NG$Dataset <- factor(univar_Overall_Summ_NG$Dataset, levels = c("3 Months", "1 Year",  "Trajectories"))
+
+write.csv(univar_Overall_Summ_NG, file="Output/Res_For_Fig2A_All_lmp_R2s_mainPvals.csv")
+```
+
+Merge Beta-estimate results
+```{r}
+# Estimates
+
+# nasal individual times
+merged_div_3M_Ests$Dataset <- "3 Months"
+merged_div_1Y_Ests$Dataset <- "1 Year"
+merged_div_Ests_Nasal <- rbind(merged_div_3M_Ests, merged_div_1Y_Ests)
+
+# gut individual times
+merged_div_3M_Est_G$Dataset <- "3 Months"
+merged_div_1Y_Est_G$Dataset <- "1 Year"
+merged_div_Ests_Gut <- rbind(merged_div_3M_Est_G, merged_div_1Y_Est_G)
+
+# merge all
+merged_div_Ests_Nasal$SampleType <- "Nasal"
+merged_div_Ests_Gut$SampleType <- "Gut"
+merged_div_Ests_NG <- rbind(merged_div_Ests_Nasal, merged_div_Ests_Gut)
+
+write.csv(merged_div_Ests_NG, file="Output/Res_For_Fig2A_IndividTimePoints_lmp_BetaEst.csv")
+
+# trajectories are already merged for estimates - lmp_coeff_Traj - just save
+write.csv(lmp_coeff_Traj, file="Output/Res_For_Fig2A_Trajectory_lmp_BetaEst.csv")
+```
+
+
+**Add direction from beta-estimates to R2 data (using merged_div_Ests_NG, lmp_coeff_Traj2)**
+```{r}
+# editing so that the estimate datasets match univar_Overall_Summ_NG (will try to Edit/keep consistent upstream later so this isn't necessary)
+
+# individual time-point
+
+## need to have only one row per dataset (timepoint), so for categorical vars remove rows: BF_status_3m_sampling, race_mom4, Season_1y, Season_3m, StudyCenter - for BF -  pick the one comparison that is most relevant, for others, just remove everything - then in merge the direction will be NA (don't care about direction for categorical variables anyway!)
+## also keep only columns important for heatmap (will maybe be useful for supplementary / important regression stats to keep but not relevant for main fig)
+merged_div_Ests_NG2 <- subset(merged_div_Ests_NG, 
+                               Variable %ni% c("race_mom4", "Season_1y", "Season_3m", "StudyCenter") &
+                              !(Variable == "BF_status_3m_sampling" &  Comparison_group == "Partial"), 
+                              select = c("SampleType", "Dataset", "Variable", "Variable2", "Comparison_group", "Reference_group", "Estimate"))
+
+
+# Trajectory data
+
+## subset in same manner as individual time-points
+lmp_coeff_Traj3 <- subset(lmp_coeff_Traj, Variable %ni% c("race_mom4", "Season_1y", "Season_3m", "StudyCenter") &
+                          !(Variable == "BF_status_3m_sampling" &  Comparison_group == "Partial"), 
+                          select = c("Variable", "Variable2", "Comparison_group", "Reference_group", "Estimate"))
+
+## table(lmp_coeff_Traj3$Variable2, lmp_coeff_Traj3$Variable)
+
+# rbind trajectory and individual time point data
+lmp_coeff_Traj3$Dataset <- "Trajectories"
+## Traj also needs a SampleType column to rbind 
+lmp_coeff_Traj3$SampleType <- ifelse(grepl("G", lmp_coeff_Traj3$Variable2), "Gut", "Nasal")
+
+merged_div_EstsTraj_NG <- rbind(merged_div_Ests_NG2, lmp_coeff_Traj3)
+
+# merge beta-estimate dataset with R2 dataset (note that beta-estimates for categorical variables are not available after merge b/c they were removd)
+Overall_Sub_NG2 <- merge(univar_Overall_Summ_NG, merged_div_EstsTraj_NG, by = c("Variable2", "Variable", "Dataset", "SampleType"), all.x = TRUE)
+
+Overall_Sub_NG2$R2_direct <- ifelse(Overall_Sub_NG2$Estimate <0, -(Overall_Sub_NG2$r.squared), Overall_Sub_NG2$r.squared)
+Overall_Sub_NG2$R2_direct <- ifelse(is.na(Overall_Sub_NG2$R2_direct), Overall_Sub_NG2$r.squared, Overall_Sub_NG2$R2_direct) # If NA then there was no direction, then just use r.squared and not that direction does not matter for these
+```
+
+```{r}
+# A number of vars tested are timepoint specific - to simplify plot interpretation, do not show many tests associating 3 month nasal microbiota with 1 year weight for example. We are not interested in outcomes, this initial heatmap is more-so about exposures and therefore aim to mostly show factors influencing microbiota composition at the relevant timepoint.
+
+# Show weight at approx the time of sampling. (also, Showing 3m weight and age and breastfeeding for Trajectories, but Showing 1y R/E virus and 1y season for Traj b/c of much clearer association BUT comment on this in results) ### e.g. remove weight_12 for 3 month dataset and weight_3 for 1 year dataset, and age_1y for 3 M dataset, etc.
+Overall_Sub_NG3 <- subset(Overall_Sub_NG2, !(Variable == "weight_12" & Dataset == "3 Months") & 
+                                !(Variable == "weight_3" & Dataset == "1 Year") & 
+                                !(Variable == "weight_12" & Dataset == "Trajectories") & 
+                                !(Variable == "age_1y_months" & Dataset == "3 Months") & 
+                                !(Variable == "age_3m_months" & Dataset == "1 Year") & 
+                                !(Variable == "age_1y_months" & Dataset == "Trajectories") & 
+                                !(Variable == "Season_1y" & Dataset == "3 Months") & 
+                                !(Variable == "Season_3m" & Dataset == "1 Year") & 
+                                !(Variable == "Season_3m" & Dataset == "Trajectories") & 
+                                !(Variable == "BF_12m_sampling" & Dataset == "3 Months") & 
+                                !(Variable == "BF_status_3m_sampling" & Dataset == "1 Year") & 
+                                !(Variable == "BF_12m_sampling" & Dataset == "Trajectories") & 
+                                !(Variable == "RE_Virus_3m" & Dataset == "Trajectories"))
+
+
+## Also, not reporting the R2 or p-value for Fever_1y for 3 month microbiome, and coldsnum_6to12m for 3 month microbiome because it's a plot of factors that may influence microbiota composition (cannot be in the future really). However keeping mom_smoke_1y and Daycare 1y, because these are collected over a span of time (~6m-1y) AND are general proxies for postnatal maternal smoke and postnatal exposure to daycare. Don't want to use Fever and colds this way so making NA for these
+Overall_Sub_NG3$R2_direct <- ifelse(Overall_Sub_NG3$Variable %in% c("Fever_1y", "coldsnum_6to12m") &
+                                      Overall_Sub_NG3$Dataset == "3 Months", 0, Overall_Sub_NG3$R2_direct) # NOTE, just making 0 instead of NA so that colour is white instead of grey - will indicate with p-value that this test was not used.
+Overall_Sub_NG3$p.value <- ifelse(Overall_Sub_NG3$Variable %in% c("Fever_1y", "coldsnum_6to12m") & 
+                                    Overall_Sub_NG3$Dataset == "3 Months", NA, Overall_Sub_NG3$p.value)
+
+#table(Overall_Sub_NG3$Variable, Overall_Sub_NG3$Dataset)
+```
+
+Other aesthetic edits
+```{r}
+# Change variable names - after above edit, BF 12m and B 3M can be the same column, Age 3M and age 1Y same column, etc. (but 3m for 3 month dataset and 1 year for 1 y dataset)
+Overall_Sub_NG3$Variable <- Overall_Sub_NG3$Variable %>%
+    gsub("BF_12m_sampling","Breastfeeding", .) %>%
+    gsub("BF_status_3m_sampling", "Breastfeeding", .) %>%
+    gsub("age_3m_months", "Age", .) %>%
+    gsub("age_1y_months", "Age", .) %>%
+    gsub("Season_3m", "Season", .) %>%
+    gsub("Season_1y", "Season", .) %>%
+    gsub("RE_Virus_1y", "RE_Virus", .) %>%
+    gsub("weight_12", "Weight", .) %>%
+    gsub("weight_3", "Weight", .)
+
+table(Overall_Sub_NG3$Variable, Overall_Sub_NG3$Dataset)
+
+
+#P-value cats, also include a "-" where p-value is NA but as a separate variable - this needs to be a separate geom_text in the heatmap to look right
+Overall_Sub_NG3$category <-  ifelse(Overall_Sub_NG3$p.value<0.001, "**",
+                                    ifelse(Overall_Sub_NG3$p.value>=0.001 & Overall_Sub_NG3$p.value<0.05, "*", ""))
+                                       
+
+Overall_Sub_NG3$category2 <- ifelse(is.na(Overall_Sub_NG3$p.value), "-", "")
+  
+
+# R2 as Percentage (% variation explained)
+Overall_Sub_NG3$`Variation explained (%)` <- Overall_Sub_NG3$R2_direct*100
+
+
+# Make a space at the end so labels aren't touching border of heatmap & rename some variables
+Overall_Sub_NG3$Variable2 <- revalue(Overall_Sub_NG3$Variable2, c("Microbiota composition (RDA)"= "Microbiota Composition # ", "Microbiota Diversity"="Microbiota Diversity ",  "Microbiota Richness"="Microbiota Richness ", "Observed_N1y3m"="Richness Trajectory ", "Observed_G1y3m"="Richness Trajectory ", "Shannon_N1y3m"="Diversity Trajectory ", "Shannon_G1y3m"="Diversity Trajectory ", "Early_N1y3m"="Early Colonizers (%) ", "Persistent_N1y3m"="Persistent Colonizers (%) ", "Late_N1y3m"="Late Colonizers (%) ",  "Early_G1y3m"="Early Colonizers (%) ", "Persistent_G1y3m"="Persistent Colonizers (%) ", "Late_G1y3m"="Late Colonizers (%) ")) # Note that we also need Richness and Diversity trajectories and colonization patterns to be named the same regardless if in nasal or gut for the heatmap so editing that here too.
+
+Overall_Sub_NG3$Variable2 <- factor(Overall_Sub_NG3$Variable2, levels = rev(c("Microbiota Richness ", "Microbiota Diversity ", "Richness Trajectory ", "Diversity Trajectory ", "Early Colonizers (%) "  , "Persistent Colonizers (%) ", "Late Colonizers (%) ", "Microbiota Composition # ")))
+levels(Overall_Sub_NG3$Variable2)
+
+
+table(Overall_Sub_NG3$Variable) #  Re-arrange based on variable type
+Overall_Sub_NG3$Variable <- factor(Overall_Sub_NG3$Variable, levels = c("Breastfeeding", "RE_Virus","colds_0to3m","coldsnum_6to12m", "Fever_3m", "Fever_1y","older_sibs", "AwayfromHome_1y" ,"StudyCenter","Season", "Mother_abs_birth_yn", "atbx", "prenatal_smoke", "mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy", "Age", "Weight", "childgender", "gest_days"))
+
+## Also, renaming most factors for final version
+Overall_Sub_NG3$Variable <- revalue(Overall_Sub_NG3$Variable, c("RE_Virus" = 'R/E Virus', "colds_0to3m" = "Colds, 0-3m", "coldsnum_6to12m" = "Colds, 6-12m", "Fever_3m" = "Fever, 0-3m", "Fever_1y" = "Fever, 6-12m", "older_sibs" = "Siblings", "AwayfromHome_1y" = "Daycare, 1y", "StudyCenter" = "# StudyCenter", "Season" = "# Season", "Mother_abs_birth_yn" = "Antibiotics, Birth", "atbx" = "Antibiotics, 1y", "prenatal_smoke" = "Prenatal Smoke", "mom_smoke_1y" = "Mother, Smoke, 1y", "mom_bmi_best" = "Mother, BMI", "birthmode2" = "C-section", "mom_age_birth" = "Mother, Age", "race_mom4" = "# Mother, Ethnicity", "mom_asthma_ever" = "Mother, Asthma", "mom_atopy" = "Mother, Atopy", "childgender" = "Sex (male)", "gest_days" = "Gestational Age") )
+
+levels(Overall_Sub_NG3$Variable) 
+
+Overall_Sub_NG3$Dataset <- factor(Overall_Sub_NG3$Dataset, levels = c("3 Months", "1 Year",  "Trajectories"))
+
+Overall_Sub_NG3$SampleType <- factor(Overall_Sub_NG3$SampleType, levels = c("Nasal", "Gut"))
+
+# save cleaned summary of compiled results included in heatmap
+write.csv(Overall_Sub_NG3, file="Output/Fig2A_Res_Summary_lmp.csv")
+```
+
+
+### Summary heatmap - just showing summary stats and signficant covariates and milk composition 
+```{r} 
+summary(Overall_Sub_NG3$`Variation explained (%)`)
+## Colour gradient really difficult to do well in ggplot2 when there's outliers that are way out of the range of other results. Most associations are <0.68% variation explained but a few are ~7% - Max out at 4% and then MAKE SURE the legend specifies that the max color means >=4% in final version
+Overall_Sub_NG3$`Variation explained (%)` <- ifelse(Overall_Sub_NG3$`Variation explained (%)` > 4, 4, 
+                                                  ifelse(Overall_Sub_NG3$`Variation explained (%)` < -4, -4, Overall_Sub_NG3$`Variation explained (%)`)) 
+```
+
+```{r} 
+# Decided post-hoc to split Early/Persistent/Late colonizers - Moving this to supplementary Fig S2C
+Overall_NG4 <- subset(Overall_Sub_NG3, Variable2 %ni% c("Late Colonizers (%) ", "Persistent Colonizers (%) ", "Early Colonizers (%) "))
+
+## use to make supplementary plot later
+ColPats_NG4 <- subset(Overall_Sub_NG3, Variable2 %in% c("Late Colonizers (%) ", "Persistent Colonizers (%) ", "Early Colonizers (%) "))
+```
+
+
+Supplementary Figure S3
+
+### Microbiota Trajectory data subsets
+
+```{r}
+# Main metadata variables to test
+Main_vars_Traj <- c("BF_status_3m_sampling", "asthma_3y", "asthma_5y", "asthma_3y_5y") 
+
+### List of Trajectory summary variables to be used for these analysis
+NG_summary <- c("Early_N1y3m", "Late_N1y3m", "Persistent_N1y3m", 
+                "Early_G1y3m", "Late_G1y3m", "Persistent_G1y3m", 
+                "Observed_N1y3m", "Observed_G1y3m", "Observed_N3m", "Observed_N1y", "Observed_G1y","Observed_G3m") 
+```
+
+```{r} 
+NG_Traj_sdf <- merge( subset(Traj_data_ls$Trajectories_Nasal_to181_Gut_at182, select = c(NG_summary)),
+                      subset(Traj_data_ls$Metadata, select=Main_vars_Traj), 
+                      by="row.names" )
+```
+
+### Data subsets for comparisons
+```{r}
+# Datasets for tests, remove intermediate group
+NG_Traj_sdf_BF <- subset(NG_Traj_sdf, BF_status_3m_sampling != "Partial")
+
+NG_Traj_sdf_Ast <- subset(NG_Traj_sdf, asthma_3y != "Possible")
+
+NG_Traj_sdf_Ast5y <- subset(NG_Traj_sdf, asthma_5y != "Possible")
+
+NG_Traj_sdf_Ast3y5y <- subset(NG_Traj_sdf, asthma_3y_5y != "Possible")
+
+## double checking sample size for each variable
+lapply(NG_Traj_sdf_BF[2:length(NG_summary)], function(x) {sum(!is.na(x))})
+
+lapply(NG_Traj_sdf_Ast[2:length(NG_summary)], function(x) {sum(!is.na(x))})
+
+lapply(NG_Traj_sdf_Ast5y[2:length(NG_summary)], function(x) {sum(!is.na(x))})
+
+lapply(NG_Traj_sdf_Ast3y5y[2:length(NG_summary)], function(x) {sum(!is.na(x))})
+```
+
+## Wilcoxon rank-sum tests 
+
+### Breastfeeding at 3 month sampling
+More important for 3 month time-point and trajectories
+```{r}
+Trajs_forTest <- as.list(NG_Traj_sdf_BF[2:length(NG_summary)]) # Also includes static timepoint richness but for the paired dataset
+
+Wilcox_res_BF <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_BF$BF_status_3m_sampling)} )
+
+Wilcox_P_BF <- Wilcox_res_BF %>% lapply(., function(x) {x[["p.value"]]}) %>% bind_rows(.) %>% t(.) %>% as.data.frame(.)
+colnames(Wilcox_P_BF) <- "BF.3m_p.value"
+
+Wilcox_P_BF$BF.3m_Sig <-  ifelse(Wilcox_P_BF$BF.3m_p.value < 0.001, "**",
+                          ifelse(Wilcox_P_BF$BF.3m_p.value < 0.05, "*", ""))
+```
+
+### Asthma at 3 Years
+```{r}
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast[2:length(NG_summary)]) 
+
+Wilcox_res_Asthma3y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast$asthma_3y)} )
+
+Wilcox_P_Ast3y <- Wilcox_res_Asthma3y %>% lapply(., function(x) {x[["p.value"]]}) %>% bind_rows(.) %>% t(.) %>% as.data.frame(.)
+colnames(Wilcox_P_Ast3y) <- "Asthma.3y_p.value"
+
+Wilcox_P_Ast3y$Asth.3y_Sig <-  ifelse(Wilcox_P_Ast3y$Asthma.3y_p.value < 0.001, "**",
+                          ifelse(Wilcox_P_Ast3y$Asthma.3y_p.value < 0.05, "*", ""))
+```
+
+### Asthma at 5 Years
+```{r}
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast5y[2:length(NG_summary)]) 
+
+Wilcox_res_Asthma5y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast5y$asthma_5y)} )
+
+Wilcox_P_Ast5y <- Wilcox_res_Asthma5y %>% lapply(., function(x) {x[["p.value"]]}) %>% bind_rows(.) %>% t(.) %>% as.data.frame(.)
+colnames(Wilcox_P_Ast5y) <- "Asthma.5y_p.value"
+
+Wilcox_P_Ast5y$Asth.5y_Sig <-  ifelse(Wilcox_P_Ast5y$Asthma.5y_p.value < 0.001, "**",
+                          ifelse(Wilcox_P_Ast5y$Asthma.5y_p.value < 0.05, "*", ""))
+```
+
+### Asthma at 3 Years that persists to 5 Years
+```{r}
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast3y5y[2:length(NG_summary)]) 
+
+Wilcox_res_Asthma3y5y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast3y5y$asthma_3y_5y)} )
+
+Wilcox_P_Ast3y5y <- Wilcox_res_Asthma3y5y %>% lapply(., function(x) {x[["p.value"]]}) %>% bind_rows(.) %>% t(.) %>% as.data.frame(.)
+colnames(Wilcox_P_Ast3y5y) <- "Asthma.3y5y_p.value"
+
+Wilcox_P_Ast3y5y$Asth.5y_Sig <-  ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0.001, "**",
+                          ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0.05, "*", ""))
+```
+
+```{r}
+Wilcox_P_merged <- data.frame(Wilcox_P_BF, Wilcox_P_Ast3y, Wilcox_P_Ast5y, Wilcox_P_Ast3y5y)
+Wilcox_P_merged
+
+write.csv(Wilcox_P_merged, file="Output/Wilcoxon_Res_Fig2C2E_Supp_Traj_ColPat_Richness.csv")
+```
+
+
+## Summary tables & Figures
+
+**Datasets for plots - melt & split - Observed Trajectories, Observed Individual timepoint and Colonization patterns**
+```{r}
+NG_Traj_sdf_m <- melt(NG_Traj_sdf, measure.vars = NG_summary)
+NG_Traj_sdf_m$Dataset <- ifelse(grepl("_G", NG_Traj_sdf_m$variable), "Gut", "Nasal")
+NG_Traj_sdf_m$Dataset <- factor(NG_Traj_sdf_m$Dataset, levels = c("Nasal", "Gut"))
+
+Single_tp <- c("Observed_N3m", "Observed_G3m", "Observed_N1y", "Observed_G1y")
+Trajs <- c("Observed_N1y3m", "Observed_G1y3m")
+ColPats <- setdiff(NG_summary, c(Single_tp, Trajs))
+
+## split data for plots
+NG_Traj_sdf_m_Trajs <- subset(NG_Traj_sdf_m, variable %in% Trajs)
+NG_Traj_sdf_m_ColPats <- subset(NG_Traj_sdf_m, variable %in% ColPats)
+
+NG_Traj_sdf_m_Tp <- subset(NG_Traj_sdf_m, variable %in% Single_tp)
+NG_Traj_sdf_m_Tp$Visit <- ifelse(grepl("3", NG_Traj_sdf_m_Tp$variable), "3-Month", "1-Year")
+NG_Traj_sdf_m_Tp$Visit <- factor(NG_Traj_sdf_m_Tp$Visit, levels = c("3-Month", "1-Year"))
+```
+
+### Summary statistics for tests of breastfeeding at 3 months and asthma at 3 years
+```{r}
+BF_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, BF_status_3m_sampling != "Partial"), varname = "value", groupnames = c("Dataset", "variable", "BF_status_3m_sampling"))
+BF_sumary$Actual_N <- BF_sumary$N - BF_sumary$NAs
+BF_sumary
+
+Asthma3Y_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, asthma_3y != "Possible"), varname = "value", groupnames = c("variable", "Dataset", "asthma_3y"))
+Asthma3Y_sumary$Actual_N <- Asthma3Y_sumary$N - Asthma3Y_sumary$NAs
+Asthma3Y_sumary
+```
+
+```{r}
+# Colors to use 
+Trj_cols <- c("#f2aeb0", "#f08a0c") # colors for the Nasal vs Gut trajectories, and also use for individual time-point supplementary plots
+Tp_Div_cols <- c("#f2aeb0", "#fc4447", "#e6c093", "#f08a0c") # colors for Nasal vs gut diversity stratified first by time-point 
+```
+
+
+### Colonization patterns (Figure S3)
+The proportion of total taxa that are early, persistent and late colonizers per-infant
+```{r} 
+## edit variable names for plot
+NG_Traj_sdf_m_ColPats$variable <- gsub("_.*$", "", NG_Traj_sdf_m_ColPats$variable)
+NG_Traj_sdf_m_ColPats$variable <- factor(NG_Traj_sdf_m_ColPats$variable, levels = c("Early", "Persistent", "Late"))
+
+BF_ColCounts <- subset(NG_Traj_sdf_m_ColPats, BF_status_3m_sampling != "Partial")
+
+Ast_ColCounts <- subset(NG_Traj_sdf_m_ColPats, asthma_3y != "Possible")
+```
+
+```{r, warning=FALSE, fig.width=9}
+Fig_S3AB_BF <- ggplot(BF_ColCounts, aes(x=BF_status_3m_sampling, y=value, group=BF_status_3m_sampling)) + 
+  facet_wrap(~Dataset*variable, ncol=6) + 
+  geom_jitter(aes(color=Dataset), shape=16, size=1.5, alpha=0.25, position = position_jitter(width = 0.15)) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black") + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + scale_y_continuous(expand=c(0,0)) + 
+  theme(axis.text = element_text(size=11), legend.position = "none") + 
+  labs(y="Percent of OTUs", x="Breastfeeding Exclusivity at 3 Months") + 
+  scale_color_manual(values = Trj_cols) + 
+  geom_signif(color="black", comparisons = list(c("Exclusive", "No BM")), test = "wilcox.test", step_increase = 0.2, vjust = 1.5, map_signif_level = c("**"=0.001, "*"=0.05,"~"=0.1," "=2), size=0, textsize = 7) 
+
+Fig_S3AB_Ast <- ggplot(Ast_ColCounts, aes(x=asthma_3y, y=value, group=asthma_3y)) + 
+  facet_wrap(~Dataset*variable, ncol=6) + 
+  geom_jitter(aes(color=Dataset), shape=16, size=1.5, alpha=0.25, position = position_jitter(width = 0.15)) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black") + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + scale_y_continuous(expand=c(0,0)) + 
+  theme(axis.text = element_text(size=11), legend.position = "none") + 
+  labs(y="Percent of OTUs", x="Asthma at 3 Years") + 
+  scale_color_manual(values = Trj_cols) + 
+  geom_signif(color="black", comparisons = list(c("No", "Yes")), test = "wilcox.test", step_increase = 0.2, vjust = 1.5, map_signif_level = c("**"=0.001, "*"=0.05,"~"=0.1," "=2), size=0, textsize = 7) 
+
+Fig_S3 <- plot_grid(Fig_S3AB_BF, Fig_S3AB_Ast, nrow = 2, axis = "tb")
+Fig_S3
+```
+
+```{r, include=FALSE}
+tiff(file = "figures/FigS3_All_ColPatterns_Final.tiff", width = 2600, height = 1350, units = "px", res = 300)
+Fig_S3
+dev.off()
+```
+
+
+
+
+
+
+
+
