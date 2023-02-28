@@ -1,0 +1,517 @@
+---
+title: "Creation of Nasal and Gut Phyloseq Objects before Data Processing"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set up
+
+```{r}
+library(phyloseq); packageVersion('phyloseq')
+library(tidyverse); packageVersion('tidyverse')
+library(reshape2); packageVersion('reshape2')
+```
+
+Read in functions and libraries
+```{r, echo=FALSE}
+source("Functions.R")
+```
+
+
+# NASAL PHYLOSEQ OBJECT 1
+
+## Import OTU table and Taxonomy 
+```{r}
+#OTU table
+OTU_table <- read.table(file="nasal_input/feature-table-tax_nasal_March2021.txt",header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
+
+taxonomy <- data.frame(row.names = row.names(OTU_table), taxonomy=OTU_table$taxonomy)
+
+OTU_table$taxonomy <- NULL
+
+dim(OTU_table) 
+```
+
+## Make a dataframe for SILVA taxonomy 
+```{r}
+taxonomy_delim <- taxonomy %>% separate(taxonomy, 
+                c("Kingdom", "Phylum","Class", "Order", "Family", "Genus", "Species"), sep = "; [[:alpha:]]__", extra = "merge")
+
+taxonomy_delim$Kingdom <- gsub("d__", "", taxonomy_delim$Kingdom)
+
+#Make "ASV" another taxonomic level at the end of table
+taxonomy_delim$ASV <- rownames(taxonomy_delim)
+
+# Will do additional taxonomy curation later once all the extra/ rare/ non-bacterial reads are removed
+```
+
+
+## Sample data checks and cleaning (using original data files sent from Laura, May and Myrtha)
+
+### Added Lab related metadata, Sequence ID checks, and distinguish laboratory controls from samples 
+
+```{r, include=FALSE}
+## inputs
+
+###  Nasal swab lab data (links sequence ID with sample IDs)
+N_sdf_path <- "nasal_input/metadata/CSswabs_OnlySamples_nov2020_KF.csv"
+
+### IDs AND RUN NUMBERS we have fastq files for
+N_IDs_path <- "nasal_input/metadata/New_CS_SampleIDs_Mar_2021.csv"
+
+### Control annotations 
+N_cont_path <- "nasal_input/metadata/Control_List_Mar2021_LR_KF_UPDATED.csv"
+
+
+## read in inputs
+
+nasal_metadata <- read.csv(N_sdf_path)
+dim(nasal_metadata) 
+### remove unnecessary cols
+nasal_metadata$Addition <- NULL
+
+nasal_Ids <- read.csv(N_IDs_path, row.names = 1)
+dim(nasal_Ids) 
+colnames(nasal_Ids) <- c("SeqID", "RunID")
+
+control_annotate <- read.csv(N_cont_path)
+``` 
+
+
+```{r, include=FALSE}
+# Re-label some sample IDs in the lab metadata that were labeled in a different format within the lab metadata vs. fastq file names and compare IDs in OTU table to those in the lab metadata 
+
+## some have 0's added after the CS, some have a 'b' appended to samples IDs in LR333 that are listed in the nasal_metadata, there are 15 of them (they were samples analyzed again in LR333, hence the 'b' was added).
+
+nasal_metadata$SeqID <- nasal_metadata$SeqID %>% ifelse(. == "CS097", "CS97", .) %>% ifelse(. == "CS098", "CS98", .) %>% 
+  ifelse(. == "CS099", "CS99", .) %>% ifelse(. == "CS113", "CS0113", .) %>% ifelse(. == "CS114", "CS0114", .) %>% 
+  ifelse(. == "CS115", "CS0115", .) %>% ifelse(. == "CS117", "CS0117", .) %>% ifelse(. == "CS118", "CS0118", .) %>% 
+  ifelse(. == "CS119", "CS0119", .) %>% ifelse(. == "CS120", "CS0120", .) %>% 
+  ifelse(. == "CS1596", "CS1596b", .) %>% ifelse(. == "CS1597", "CS1597b", .) %>% ifelse(. == "CS1599", "CS1599b", .)  %>% ## add the 'b' appended to SeqID's in the otu table
+  ifelse(. == "CS1600", "CS1600b", .)  %>% ifelse(. == "CS1602", "CS1602b", .)  %>% ifelse(. == "CS1603", "CS1603b", .)  %>% 
+  ifelse(. == "CS1605", "CS1605b", .)  %>% ifelse(. == "CS1606", "CS1606b", .)  %>% ifelse(. == "CS1607", "CS1607b", .)  %>% 
+  ifelse(. == "CS1611", "CS1611b", .)  %>% ifelse(. == "CS1612", "CS1612b", .)  %>% ifelse(. == "CS1613", "CS1613b", .)  %>% 
+  ifelse(. == "CS1614", "CS1614b", .)  %>% ifelse(. == "CS1615", "CS1615b", .)  %>% ifelse(. == "CS1616", "CS1616b", .) 
+  
+  
+# DOUBLE CHECK IDs
+
+## verify mo duplicate IDs
+sum(duplicated(nasal_Ids$SeqID)) == 0 #
+sum(duplicated(nasal_metadata$SeqID)) == 0 
+
+
+# Checking for samples in OTU table without metadata
+length(setdiff(nasal_Ids$SeqID, nasal_metadata$SeqID)) # 263 IDs now don't have sample metadata - controls, replicates, WES/PJ project samples (For WER project). Nothing unexpected
+
+length(setdiff(nasal_metadata$SeqID, nasal_Ids$SeqID)) # 306 Have lab metadata but missing fastq files - these are the 'failed' samples and/or insufficient DNA for sequencing.
+
+## Save a list of the samples with lab metadata but no fastq sent and send to Laura to verify. 
+nasal_metadata_missing <- subset(nasal_metadata, SeqID %in% setdiff(nasal_metadata$SeqID, nasal_Ids$SeqID))
+write.csv(nasal_metadata_missing, file="output/nasal_LabData_missing_fastq_Mar2021.csv")
+### she confirmed that all samples listed were "Not Sent" (No band/DNA, therefore not sent for sequencing).
+```
+
+```{r, include=FALSE}
+# Merge IDs/Run numbers of the current samples (nasal_Ids) with corresponding 'lab metadata' (only keep samples we have data for / in nasal_Ids) 
+
+#### while keeping ALL samples (even if we cannot link metadata yet)
+nasal_metadata1 <- merge(nasal_Ids, nasal_metadata, by="SeqID", all.x = TRUE) 
+nrow(nasal_metadata1) == nrow(nasal_Ids) ## good
+
+### verify no dups
+sum(duplicated(nasal_metadata1$SeqID)) == 0 # great
+
+# Re-checked RunIDs, then remove duplicated Run ID column
+nasal_metadata1$RunNum <- NULL
+```
+
+```{r, include=FALSE}
+#Merge control data with sequencing metadata and add a SampleType column to differentiate various control and samples
+
+## first check if the number of controls in nasal_metadata1 (that match IDs in control_annotate) equal the number of controls in control_annotate
+length(intersect(nasal_metadata1$SeqID, control_annotate$SeqID)) == nrow(control_annotate)
+
+## Removing repetitive column and rename a column name
+control_annotate$RunID <- NULL
+colnames(control_annotate)[names(control_annotate) == "ID2"] <- "Controls_ID2"
+
+# merge sequencing w/t control metadata - again just keep all samples we have sequencing data for (in nasal_metadata1)
+nasal_metadata2 <- merge(nasal_metadata1, control_annotate, by="SeqID", all.x = TRUE)
+nrow(nasal_metadata2) == nrow(nasal_metadata1) ## good
+
+
+# make SampleType
+## For differentiation b/t different samples regardless of controls
+nasal_metadata2$SampleType <- ifelse(nasal_metadata2$RunID == "WER-LR180" | nasal_metadata2$RunID == "WER-LR221", "WER_Sample", ifelse(nasal_metadata2$RunID == "LR109" | nasal_metadata2$RunID == "LR110", "SA_Sample",  "Sample"))
+
+## For negatives & other controls use LR_neg_annotation - if LR_neg_annotation NA then it's a sample therefore keep SampleType same as above ifelse
+nasal_metadata2$SampleType <- ifelse(is.na(nasal_metadata2$LR_neg_annotation), nasal_metadata2$SampleType, nasal_metadata2$LR_neg_annotation) # if LR_neg_annotation is NA then it is a true "Sample"
+
+# Note that SeqID and Specimen.ID give more details about the controls, SampleType is summarized (Sample, NEG, CON) Con for unspecified control. 
+
+table(nasal_metadata2$SampleType) # Note the "Unknown" sample was mistakenly sent to us but is not part of this project. This will be removed after creating the phyloseq object and before microbiome preprocessing along with other unnecessary controls/samples.
+
+## control annotation no longer necessary
+nasal_metadata2$LR_neg_annotation <- NULL
+``` 
+
+### Check and Add Time-Points, ChildIDs and differentiation of regular vs. "viral" (extra swabs not part of the main study) nasal swabs by matching specimen IDs
+```{r, include=FALSE}
+# Loading sample lists provided by May and Myrtha (CHILD & Marck's lab) - double check that they are consistent and consolidate these datasets. Note that slightly different subsets of data were provided in each instance but those samples that overlap should have consistency in timepoints /etc.
+
+# Input
+Original_viral_path <- "nasal_input/metadata/2_02 - Current specimen ID and virus 06Mar2020.csv"
+New_viral_path <- "nasal_input/metadata/1_CHILD Viral Data vMay2020.csv"
+All_N_path <- "nasal_input/metadata/EGCD ALL Nasal Samples_V11Aug2020.csv"
+
+
+#Old and new viral data was provided, and a list of all samples
+All_samples_old <- read.csv(Original_viral_path) # differentiates viral and nasal swabs
+
+All_samples <- read.csv(New_viral_path) 
+
+Nasal_ALL_new <- read.csv(All_N_path)
+```
+
+```{r, include=FALSE}
+# Merge the old and new sample/virus data and look through it - does it match? 
+
+## Make colnames consistent b/f merge
+colnames(All_samples) <- c("CHILDid", "Visit", "Centre", "Specimen.ID", "Virus")
+
+# Merge old and new sample/virus data, keep all, and check whether anything is mismatched/missing/etc. 
+All_samples_merged <- merge(All_samples, All_samples_old, by = "Specimen.ID", all = TRUE, suffixes = c("", "_old"))
+### verify no dups
+sum(duplicated(All_samples_merged$Specimen.ID)) == 0 # There were duplicates in the metadata provided.
+
+## did a few more checks -  all match except that there are fewer samples in the 'old' metadata as expected
+
+# Extra - investigated duplicates further
+All_samples_dups <- subset(All_samples_merged, duplicated(All_samples_merged$Specimen.ID) == TRUE)
+All_samples_dups2 <- subset(All_samples_merged, (Specimen.ID %in% All_samples_dups$Specimen.ID)) # Carefully go through.
+
+
+# Checked - Duplicate pairs have the exact same data for visit/childid/etc. so REMOVE duplicates 
+All_samples_noDups <- subset(All_samples_merged, !duplicated(All_samples_merged$Specimen.ID))
+
+# Also checked other columns - new vs old. They are the same other than the old version having more NA values. Only keeping "Name" column from old virus data (this variable isn't relevant to the new data)
+All_samples_noDups$Centre_old <- NULL
+All_samples_noDups$Visit_old <- NULL
+All_samples_noDups$CHILDid_old <- NULL
+
+dim(All_samples_noDups) # 5017
+
+# ALSO -remove virus data - no longer using viral data from these subsets - just Visit, Center, Name and CHILDid's and verifying that datasets are consistent.
+All_samples_noDups$Virus <- NULL
+All_samples_noDups$TestResult <- NULL
+```
+
+### Merge nasal sample list with the total sample list - need to match CHILDids with specimen IDs for all samples 
+```{r, include=FALSE}
+# check for duplicates
+sum(duplicated(Nasal_ALL_new$Specimen.ID)) # 0
+
+# Edit columns with unnecessary appendages
+Nasal_ALL_new$CHILDid <- gsub("C$", "", Nasal_ALL_new$Participant_PPID) 
+Nasal_ALL_new$Centre <- gsub("CHILD ", "", Nasal_ALL_new$Visit_Visit.Site)
+
+
+# Specimen_Specimen.Label shows the timepoint (except 00, could be virus aliquot or 5 year)
+Nasal_ALL_new2 <- Nasal_ALL_new %>% separate(Specimen_Specimen.Label, 
+                                                             c("PPID", "Time","Name2"), sep = "\\.")
+# 01=3 months, 02=1 year
+table(Nasal_ALL_new2$Time)
+sum(is.na(Nasal_ALL_new2$Time))
+Nasal_ALL_new2$Time <- ifelse(Nasal_ALL_new2$Time == "01", "3 Months", ifelse(Nasal_ALL_new2$Time == "02", "1 Year", "Viral or 5 year"))
+table(Nasal_ALL_new2$Time)
+
+Nasal_ALL_new2 <- subset(Nasal_ALL_new2, select = c("Specimen_CHILD.Sample.Info_HD.SampleID", "Time", "CHILDid", "Centre"))
+colnames(Nasal_ALL_new2)[names(Nasal_ALL_new2) == "Specimen_CHILD.Sample.Info_HD.SampleID"] <- "Specimen.ID" ## change weird column name
+
+# merge datasets
+nasal_all_samples <- merge(Nasal_ALL_new2, All_samples_noDups, by = "Specimen.ID", all = TRUE, suffixes = c("_new", ""))
+dim(nasal_all_samples) 
+
+# Check and consolidate data
+### CHECKED - Where not NA and excluding the 5 year visit or Name=="Virall Swab Aliquot", columns match between datasets - this is expected. 
+#### So, we should USE Visit originating from All_samples_noDups, and if this is NA, use "Time" version from Nasal_ALL_new2. For CHILDid and center use new otherwise old data if new is NA.
+
+nasal_all_samples$Visit <- ifelse(is.na(nasal_all_samples$Visit), nasal_all_samples$Time, nasal_all_samples$Visit)
+sum(is.na(nasal_all_samples$Visit))
+
+table(nasal_all_samples$Visit) #  The one that cannot be differentiated "Viral or 5 year" is the CHILDid 50715 with a different specimen ID in EGCD data vs. lab metadata. This will be removed during merge with microbiome data since it wasn't sequenced anyway.
+
+nasal_all_samples$CHILDid <- ifelse(is.na(nasal_all_samples$CHILDid_new), nasal_all_samples$CHILDid, nasal_all_samples$CHILDid_new) # will just replace one NA
+sum(is.na(nasal_all_samples$CHILDid))
+
+nasal_all_samples$Site <- ifelse(is.na(nasal_all_samples$Centre_new), nasal_all_samples$Centre, nasal_all_samples$Centre_new) # will just replace one NA
+sum(is.na(nasal_all_samples$Site))
+
+# also edit "Name" col - all NAs are nasal aliquots
+nasal_all_samples$Name <- ifelse(is.na(nasal_all_samples$Name), "Nasal Swab Aliquot", nasal_all_samples$Name)
+
+# Columns to keep: Specimen.ID, Visit, Site, CHILDid, Name 
+keep_cols <- c("Specimen.ID", "CHILDid", "Visit", "Site", "Name")
+
+nasal_all_samples <- subset(nasal_all_samples, select = keep_cols)
+
+## Actually the name "Centre" was used for study site in my codes, so changing "Site" back to "Centre"
+colnames(nasal_all_samples)[names(nasal_all_samples) == "Site"] <- "Centre"
+
+# Save this sample list, Send list of samples to May to double check correctness. 
+write.csv(nasal_all_samples, file="output/EGCD_Viral_nasal_data_Compiled_06122_KF.csv")
+```
+
+### Merge this compiled viral data with lab metadata for samples that have microbiome data (nasal_metadata2), and keep ONLY and ALL samples in nasal_metadata2
+```{r, include=FALSE}
+nasal_metadata3 <- merge(nasal_metadata2, nasal_all_samples, by="Specimen.ID", all.x = TRUE) 
+nrow(nasal_metadata3) == nrow(nasal_metadata2)
+
+### Note that all actual samples have CHILDids (except some that ended in 'b' which have read counts too low anyway, see "SampleType" column), lab controls do not
+```
+
+```{r, include=FALSE}
+# Extra edits for phyloseq obj
+
+## re-arrange visit factors 
+nasal_metadata3$Visit <- factor(nasal_metadata3$Visit, levels = c("3 Months", "1 Year", "3 Years Clinic", "5 Years Clinic"))
+
+
+## Add column that distinguishes PFT dataset from overall dataset
+PFT_ls_path <- "nasal_input/metadata/Subjects with nasal m and PFT.csv"
+
+PFT_data <- read.csv(PFT_ls_path)
+
+### edit visit column
+colnames(PFT_data)[names(PFT_data) == "event"] <- "Visit"
+PFT_data$Visit <- PFT_data$Visit %>% gsub("1", "3 Months", .) %>% gsub("2", "1 Year", .)
+
+PFT_data$DataSubset <- "PFT" # everything in this list sent is from the PFT dataset
+PFT_data$Name <- NULL # don't need this column
+
+### All that is changing is the addition of new columns
+nasal_metadata3 <- merge(nasal_metadata3, PFT_data, by= c("CHILDid", "Visit"), all.x = TRUE)
+
+nasal_metadata3$DataSubset <- ifelse(is.na(nasal_metadata3$DataSubset), "Overall", nasal_metadata3$DataSubset) # IF not PFT subset is overall data
+
+table(nasal_metadata3$DataSubset)
+```
+
+
+### Final checks and save metadata, make sure rownames match IDS for ASV table (order doesn't matter)
+```{r, include=FALSE}
+## make rownames sequencing IDs
+row.names(nasal_metadata3) <- nasal_metadata3$SeqID
+
+# some differ - Probably controls 
+length(setdiff(row.names(nasal_metadata3), colnames(OTU_table)))
+setdiff(row.names(nasal_metadata3), colnames(OTU_table)) # Dashes in metadata
+setdiff(colnames(OTU_table), row.names(nasal_metadata3))  # were changed to a period in OTU table
+
+# rownames in metadata need to match those in the OTU table - edit this
+
+## To be safe, just changing rownames in metadata for those that actually differ
+Edit_notation <- setdiff(row.names(nasal_metadata3), colnames(OTU_table))
+
+row.names(nasal_metadata3) <- ifelse(row.names(nasal_metadata3) %in% Edit_notation, gsub("\\-", ".", row.names(nasal_metadata3)), row.names(nasal_metadata3))
+  
+# A few more checks
+## nasal_metadata3["CSAugP5.UTM",] # rowname changed but SeqID remains the same, ok
+setdiff(colnames(OTU_table), row.names(nasal_metadata3))
+setdiff(row.names(nasal_metadata3), colnames(OTU_table)) 
+
+## one additional formatting difference to correct - just remove the "X" that was added in OTU table ID (this was added b/t it started w/t a number)
+colnames(OTU_table) <- gsub("^X", "", colnames(OTU_table))
+
+# Save total nasal metadata before adding to phyloseq object
+write.csv(nasal_metadata3, file="output/Samples_for_nasal_withVirus_060321.csv")
+```
+
+
+## Made the first nasal phyloseq object 
+*Includes some non-CHILD samples that still need to be excluded*
+```{r}
+OTU = otu_table(as.matrix(OTU_table), taxa_are_rows=TRUE)
+TAX = tax_table(as.matrix(taxonomy_delim))
+sampledata = sample_data(nasal_metadata3)
+
+physeq = phyloseq(OTU, TAX, sampledata)
+physeq
+# Numbers add up
+```
+
+```{r, include=FALSE}
+# Save/read in Physeq Objs
+saveRDS(physeq, file='output/datasets/physeq_nasal_Closed.rds')
+```
+
+## Keep only CHILD swabs to analyze (Removing WER, SA samples & controls not part of study)
+```{r}
+physeq_child <- subset_samples(physeq, SampleType != "WER_Sample" & SampleType != "SA_Sample" & SampleType != "PCR_neg_differentprogram_samereagents" & SampleType != "extraction_negMS2" & SampleType != "Unknown" & SampleType != "ExtTestRep") 
+physeq_child <- prune_taxa(taxa_sums(physeq_child)>0, physeq_child) ## removing taxa only present in the removed samples too
+### Notes: SampleType "Unknown" is a sample accidentally added to nasal swab list and sent to us with fastq files. MS2 = positive control. ExtTestRep = nasal swab extraction with different reagents decided not to use for nasal swabs. SA_Sample = Very contaminated.
+
+physeq_child
+```
+
+## add read counts to metadata as readcount1
+```{r, warning=FALSE, message=FALSE}
+sample_data(physeq_child)$readcount1 <- sample_sums(physeq_child) # same order so can do this 
+```
+
+```{r, include=FALSE}
+saveRDS(physeq_child, file='output/datasets/phy_nasal_Close_CHILD_March2021.rds')
+```
+
+
+# GUT PHYLOSEQ OBJECT 1
+
+## Import OTU table and seporate from Taxonomy Column 
+```{r}
+#OTU table
+OTU_table <- read.table(file="gut_input/gut-feature-table-tax.txt",header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
+colnames(OTU_table) <- gsub("^X", "", colnames(OTU_table)) ## removing prepended "X" from sampleIDs
+
+taxonomy <- data.frame(row.names = row.names(OTU_table), taxonomy=OTU_table$taxonomy)
+
+OTU_table$taxonomy <- NULL
+```
+
+## Made a dataframe for SILVA taxonomy 
+```{r}
+taxonomy_delim <- taxonomy %>% separate(taxonomy, 
+                c("Kingdom", "Phylum","Class", "Order", "Family", "Genus", "Species"), sep = "; [[:alpha:]]__", extra = "merge")
+
+taxonomy_delim$Kingdom <- gsub("d__", "", taxonomy_delim$Kingdom)
+
+#Make "ASV" another taxonomic level at the end of table
+taxonomy_delim$ASV <- rownames(taxonomy_delim)
+
+# Will do additional edits later once all the extra/super rare/ non-bacterial reads are removed
+```
+
+
+## Import and clean sample metadata 
+
+```{r}
+# Inputs
+gut_sdf_path <- "gut_input/metadata/Gut_Metadata_subjects_matched_shirin_July19_2.txt" # gut sample lab metadata
+gut_Runs_path <- "gut_input/metadata/Stool_IDs_RunID_List.csv" # samples w/t sequencing data
+Blank_sdf_path <- "gut_input/metadata/Blanks_confirmed_per_run.csv" # Blank - RunID link - identified previously based on a master sequencing sheet and the 'location' of each blank ("location" in file names could be matched to master sequencing sheet)
+Blank_name_path <- "gut_input/metadata/BlankNameChange_Jan2019.txt" # blank names were relabeled at some point for demultiplexing (not by me). This is a list of fastq file names for blanks 
+Blank_files_path <- "gut_input/metadata/MANIFEST_Blanks" # name of files sent to me originally for blanks
+
+## any sampleIDs not in lab metadata are not to be analyzed (12 samples)
+gut_metadata <- read.table(gut_sdf_path ,header=TRUE, sep="\t", na.strings="NA", dec=".", strip.white=TRUE)
+
+RunIDs <- read.csv(gut_Runs_path)
+colnames(RunIDs) <- c("SampleID", "RunID") ##  re-label colnames
+
+Blank_matching <- read.csv(Blank_sdf_path) 
+Blank_matching$sample_location <- paste(Blank_matching$BlankID, Blank_matching$location, sep = "_") # There are duplicate blank IDs - so adding their "location" to make unique IDs here
+
+Blank_name_changes <- read.table(Blank_name_path, header=FALSE) 
+Blank_name_changes$V1 <- NULL ## extra col not needed
+colnames(Blank_name_changes) <- c("per_run", "post_merge") # first filename is the original name per-run; second is the post-merge file names (relabeled at some point upstream)
+Blank_name_changes$sample_location <- gsub("_L001_R1_001.fastq.gz", "", Blank_name_changes$per_run) ## remove unnecessary part of file name, just need section corresponding to IDs. Don't care about "R2" files (only need to match for one of the reads)
+
+Blank_filenames <- read.csv(Blank_files_path)
+```
+
+```{r}
+# merge, keep only and all those in RunIDs (have sequencing data for)
+gut_metadata2 <- merge(RunIDs, gut_metadata, all.x=TRUE, by="SampleID")
+sum(is.na(gut_metadata2$SubjectNumber)) # 60 Na, 48 of which are negative controls (as expected,  there are 12 samples that cannot be linked with CHILDids, to be removed)
+
+# differentiate blanks from samples
+### IF RunID == unknown = blank; blanks were not linked to specific runs in the data received 
+gut_metadata2$SampleType <- ifelse(gut_metadata2$RunID == "unknown", "Blank", "Gut")
+table(gut_metadata2$SampleType)
+```
+
+Match controls to their respective sequencing runs
+```{r}
+# Blank_matching and Blank_name_changes can be merged by the newly generated unique blank ID "sample_location" for all 48 blanks
+Blank_matching2 <- merge(Blank_matching, Blank_name_changes, by="sample_location")
+
+# Now blanks can be linked to RunIDs by the "post_merge" filenames from "Blank_name_changes"; which corresponds to the file names recieved originally in Blank_filenames
+Blank_filenames$post_merge <- gsub("^/Users/kelseyfehr/OneDrive - University of Manitoba/CHILD_Nasal_Milk_Project/Analyses/PreProcessing/Gut_Sequence_Bioinformatics/Raw_sequences/Blanks/", "", Blank_filenames$absolute.filepath)
+## post_merge filenames, just need one ID per sample
+Blank_filenames2 <- subset(Blank_filenames, direction== "forward", select = c("sample.id", "post_merge")) 
+
+
+Blank_matching3 <- merge(Blank_matching2, Blank_filenames2, by="post_merge") # can now see which blanks had their IDs modified (this was before the data was shared with us and not recorded, so needed to trace back in this round about way)
+
+# only need Month and sample.id, just wanted to link these two columns for blanks (RunID and Month are the same)
+Blank_matching4 <- subset(Blank_matching3, select = c("Month", "sample.id"))
+table(Blank_matching4$Month)
+
+gut_metadata3 <- merge(gut_metadata2, Blank_matching4, by.x="SampleID", by.y="sample.id", all.x=TRUE)
+
+## Adding RunID for blanks which are currently labeled unknown for RunID
+gut_metadata3$RunID <- ifelse(gut_metadata3$RunID == "unknown", gut_metadata3$Month, gut_metadata3$RunID)
+table(gut_metadata3$RunID)
+
+gut_metadata3$Month <- NULL # now this col is not necessary
+```
+
+```{r}
+# change Visit and CHILDid variables consistent with nasal data
+gut_metadata3$Visit <- gut_metadata3$Visit %>% gsub("3month", "3 Months", .) %>% gsub("1year", "1 Year", .)
+
+colnames(gut_metadata3)[names(gut_metadata3) == "SubjectNumber"] <- "CHILDid"
+```
+
+```{r, include=FALSE}
+# extra edits for phyloseq obj.
+
+# Add PFT data subset annotation (same dataset used for nasal data, PFT_data)
+gut_metadata5 <- merge(gut_metadata3, PFT_data, by= c("CHILDid", "Visit"), all.x = TRUE)
+gut_metadata5$DataSubset <- ifelse(is.na(gut_metadata5$DataSubset), "Overall", gut_metadata5$DataSubset)# IF NA, is from overall subset
+
+# Make sampleID as rownames
+row.names(gut_metadata5) <- gut_metadata5$SampleID
+```
+
+
+## Made the first milk phyloseq object
+```{r}
+OTU = otu_table(as.matrix(OTU_table), taxa_are_rows=TRUE)
+TAX = tax_table(as.matrix(taxonomy_delim))
+sampledata = sample_data(gut_metadata5)
+
+physeq_gut = phyloseq(OTU, TAX, sampledata)
+```
+
+```{r, include=FALSE}
+saveRDS(physeq_gut, file='output/datasets/physeq_gut_Closed.rds')
+```
+
+## Additionally remove 12 samples not to be used for this project
+
+Remove the 12 samples that were not identified as CHILD stool samples or blanks, and the ASVs only present in these samples
+```{r}
+#Remove the 12 samples that cannot be linked to CHILDids:
+Missing_IDs <- subset(gut_metadata5, SampleType == "Gut" & is.na(CHILDid))$SampleID
+
+gut_noMissing <- subset_samples(physeq_gut, SampleID %ni% Missing_IDs)
+gut_noMissing <- prune_taxa(taxa_sums(gut_noMissing) >0, gut_noMissing)
+
+gut_noMissing
+#1,773 samples and 2,528 taxa
+```
+
+## add read counts to metadata as readcount1
+```{r, warning=FALSE, message=FALSE}
+sample_data(gut_noMissing)$readcount1 <- sample_sums(gut_noMissing) # same order so can do this 
+```
+
+```{r, include=FALSE}
+saveRDS(gut_noMissing, file='output/datasets/physeq_gut_Closed_CHILD.rds')
+```
+
+
+

@@ -1,0 +1,589 @@
+---
+title: "Additional Data Processing to create Subsets and Derived Variables for Analyses"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+```{r}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(tidyr); packageVersion('tidyr')
+library(tidyverse); packageVersion('tidyverse')
+library(ggplot2); packageVersion('ggplot2')
+library(reshape2); packageVersion('reshape2')
+
+source("Preprocessing/Functions.R")
+```
+
+```{r} 
+## used for abundance analyses
+UnRarefy <- readRDS("Preprocessing/final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds")
+
+## used for prevalence-based analyses
+Rarefy <- readRDS(file="Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds")
+```
+
+```{r, include=FALSE} 
+# post-hoc additions - edit some variables used in analyses of non-rarefied data
+
+sdf <- as(sample_data(UnRarefy), "data.frame")
+
+sdf$Type_visit <- paste(sdf$SampleType, sdf$Visit)
+sdf$Fever_3m <- ifelse(sdf$Fever_3m == 0, "No", ifelse(sdf$Fever_3m == 1, "Yes", NA))
+sdf$Fever_1y <- ifelse(sdf$Fever_1y == 0, "No", ifelse(sdf$Fever_1y == 1, "Yes", NA))
+
+
+# need to change factor levels based on which factor we want as reference for downstream models for the factors/characters in this list:
+Main_vars <- c("BF_status_3m_sampling", "BF_12m_sampling","RE_Virus", "colds_0to3m", "coldsnum_6to12m","Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter", "Season_3m" , "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke","mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy",  "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+
+
+# split numeric and categorical variables to edit categorical variables, then re-merge with numeric
+sdf_3m2_num <- sdf %>% select_if(is.numeric) 
+sdf_3m2_cat <- subset(sdf, select = setdiff(Main_vars, colnames(sdf_3m2_num))) # Factors to modify levels for; in Main_vars but not numeric (factor or character)
+
+sdf_other <- subset(sdf, select = setdiff(colnames(sdf), colnames(sdf_3m2_cat))) # DF of Metadata not being edited
+
+# check that all cols are accounted for in two subsets
+sum(dim(sdf_other)[2] + dim(sdf_3m2_cat)[2]) == dim(sdf)[2] # TRUE, good
+
+# make all characters factors 
+sdf_3m2_cat[] <- lapply(sdf_3m2_cat[], factor)
+lapply(sdf_3m2_cat[], levels) # better to swap factor level for most of these... Nearly all need to be reversed
+
+# Want all factor levels to be reversed - this way the "no" group will generally be the last group (ref for lmp is last level)
+sdf_3m2_cat[] <- lapply(sdf_3m2_cat[], function(x) {factor(x, levels = rev(levels(x)))})
+
+## A few exceptions to the rule, want a different order for these factor levels
+sdf_3m2_cat$BF_status_3m_sampling <- factor(sdf_3m2_cat$BF_status_3m_sampling, levels = c("Exclusive", "Partial", "No BM"))
+sdf_3m2_cat$BF_12m_sampling <- factor(sdf_3m2_cat$BF_12m_sampling, levels = c("Yes", "No")) 
+sdf_3m2_cat$birthmode2 <- factor(sdf_3m2_cat$birthmode2, levels = c("Caesarean", "Vaginal"))
+sdf_3m2_cat$race_mom4 <- factor(sdf_3m2_cat$race_mom4, levels = c("Asian", "FN", "Other", "Caucasian"))
+sdf_3m2_cat$StudyCenter <- factor(sdf_3m2_cat$StudyCenter, levels = c("Edmonton", "Toronto", "Vancouver", "Winnipeg"))
+sdf_3m2_cat$Season_3m <- factor(sdf_3m2_cat$Season_3m, levels = c("Spring", "Summer", "Fall", "Winter"))
+sdf_3m2_cat$Season_1y <- factor(sdf_3m2_cat$Season_1y, levels = c("Spring", "Summer", "Fall", "Winter"))
+
+lapply(as.list(sdf_3m2_cat), levels) # Looks much better
+
+# re-merge data using data.frame function - is maintained... just double check rownames are the same in both first!
+identical(rownames(sdf_3m2_cat), rownames(sdf_other))
+sdf2 <- data.frame(sdf_3m2_cat, sdf_other)
+
+
+# re-save sample data to phyloseq object
+sample_data(UnRarefy) <- sdf2
+```
+
+```{r, include=FALSE} 
+# post-hoc additions - edit genus-level taxonomy
+# For agglomerating to genus level, there is a small issue with taxonomy where the species level is in the genus level category for some contested taxa with hard brackets - this only affects Genus level plots - Fig1 C & D - won't matter for other analyses - so just edit for this non-rarefied dataset)
+
+taxonomy <- as.data.frame(as(tax_table(UnRarefy), "matrix"))
+
+# two that will be tricky, group into appropriate genera one by one for these two
+taxonomy$Genus <- taxonomy$Genus %>% gsub("Unclassified \\[Clostridium\\]_methylpentosum_group", "[Clostridium]", .) %>% 
+                  gsub("Unclassified \\[Eubacterium\\]_coprostanoligenes_group", "[Eubacterium]", .)
+
+# remove everything after the space for the rest of taxa with hard brackets (this is the species name)
+taxonomy$Hard_bracket_flag <- grepl("\\[", taxonomy$Genus)
+taxonomy$Genus <- ifelse(taxonomy$Hard_bracket_flag == TRUE, gsub(" .*", "", taxonomy$Genus), taxonomy$Genus)
+
+# rm hard bracket flag & save taxonomy table back to phyloseq obj
+taxonomy$Hard_bracket_flag <- NULL
+
+tax_table(UnRarefy) <- as.matrix(taxonomy)
+```
+
+
+# Sample filters for Non-Rarefied Nasal-Gut dataset
+
+### Remove infants without breastfeeding status information at the time of 3 month sample collection and only keep relevant time-points & sample types
+```{r}
+#  (exclude viral samples, 3 year and 5 year samples)
+Main_data <- subset_samples(UnRarefy, (Name == "Nasal Swab Aliquot" | SampleType == "Gut") & 
+             !is.na(BF_status_3m_sampling) & ( SampleType == "Nasal" | SampleType == "Gut" | BF_status_3m_MS_sampling_exact != "No BM") &
+             Visit != "3 Years" & Visit != "5 Years") # includes filter that IF sample is a milk sample AND breastfeeding status and milk sampling is "No BM", then exclude.
+
+table(sample_data(Main_data)$Visit, sample_data(Main_data)$SampleType)
+```
+
+### Assess infant ages at sampling at each time-point and remove major outliers to avoid overlap between timepoints
+```{r, warning=FALSE}
+ggplot(sample_data(Main_data), aes(x=Type_visit, y=Age_sampling)) + geom_boxplot() + 
+  labs(y="Age at sampling (months)", x="") + geom_hline(yintercept = 8) + geom_hline(yintercept = 21) + 
+  geom_hline(yintercept = 72) + scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70)) + 
+  scale_x_discrete(labels = c("3 Months Milk" = "Milk","3 Months Nasal" = "3 Months", "1 Year Nasal" = "1 Year","5 Years Nasal" = "5 Years")) 
+```
+
+**Remove outliers for age at sampling, important particularly for longitudinal/paired analyses**
+```{r}
+# check subset if using BF at sampling as filter (done later but should have done here)
+Main_data2 <- subset_samples(Main_data, (Age_sampling < 8 & Age_sampling > 1 & Visit == "3 Months") | (Age_sampling < 21 & Age_sampling > 8 & Visit == "1 Year")) 
+```
+
+**Remove infants never ever breastfed, even in hospital**
+```{r}
+Main_data3 <- subset_samples(Main_data2, BF_status_3m_sampling2 != "Never breastfed") 
+```
+
+```{r}
+data_NG2 <- prune_taxa(taxa_sums(Main_data3)>0, Main_data3) # removing any taxa not present in this subset 
+data_NG2
+
+table(sample_data(data_NG2)$Visit, sample_data(data_NG2)$SampleType)
+
+saveRDS(data_NG2, file = "Data_subsets/Main_UnRarefied_NasalGut_Subset.rds")
+```
+
+
+
+# Sample filters for Main Rarefied Nasal-Gut dataset (Used for Prevalence based analyses, including Trajectory analyses)
+Use the same sample filters as above for rarefied data
+
+### Remove infants without breastfeeding status information at the time of 3 month sample collection and only keep relevant time-points & sample types
+```{r}
+Main_data <- subset_samples(Rarefy, (Name == "Nasal Swab Aliquot" | SampleType == "Gut") & 
+             !is.na(BF_status_3m_sampling) & ( SampleType == "Nasal" | SampleType == "Gut" | BF_status_3m_MS_sampling_exact != "No BM") &
+             Visit != "3 Years" & Visit != "5 Years") 
+```
+
+
+```{r} 
+# Exclude Age at sample collection outliers
+Main_data_1 <- subset_samples(Main_data, (Age_sampling < 8 & Age_sampling > 1 & Visit == "3 Months") | (Age_sampling < 21 & Age_sampling > 8  & Visit == "1 Year")) 
+
+# Excludes infants never breastfed
+Main_data_2 <- subset_samples(Main_data_1, BF_status_3m_sampling2 != "Never breastfed") # previously named Main_data_NMG2
+
+Main_data_2 <- prune_taxa(taxa_sums(Main_data_2)>0, Main_data_2) # removing any taxa not present in this subset 
+
+
+table(sample_data(Main_data_2)$Visit, sample_data(Main_data_2)$SampleType)
+
+saveRDS(Main_data_2, file = "Data_subsets/Main_Rarefied_NasalGut_Subset.rds")
+```
+
+
+
+# Microbiota Trajectory Dataset & Derived Trajectory Variables
+
+## Datasets for 3m1y prevalence trajectory analyses
+
+### Nasal data
+```{r} 
+# Common Subject IDs between milk and nasal samples at 3 months
+Common_3m1yN <- intersect(sample_data(subset_samples(Main_data_2, Visit == "3 Months" & SampleType == "Nasal"))$CHILDid,
+                          sample_data(subset_samples(Main_data_2, Visit == "1 Year"  & SampleType == "Nasal"))$CHILDid)
+length(Common_3m1yN) # number of infants w/t both 3M and 1Y sample
+
+# Subset Samples for these 1545 infants
+Nasal_3m1y <- subset_samples(Main_data_2, SampleType == "Nasal" & (Visit == "3 Months" | Visit == "1 Year") & CHILDid %in% Common_3m1yN) # 1 year nasal
+
+# Taxa wanted for prevalence trajectory analyses - present in >10% of samples at EITHER 3 Months or 1 Year 
+nasal_3m_tax_filt = filter_taxa(subset_samples(Nasal_3m1y, Visit =="3 Months"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+nasal_1y_tax_filt = filter_taxa(subset_samples(Nasal_3m1y, Visit =="1 Year"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+
+Nasal_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(nasal_3m_tax_filt, taxonomic.rank = "ASV_taxonomy"), 
+                                    get_taxa_unique(nasal_1y_tax_filt, taxonomic.rank = "ASV_taxonomy")), Nasal_3m1y) # NOTE that there is overlap in taxa b/t these 2 lists so the number in the final DF will be less
+
+Nasal_3M1Y_pa_filt <- transform_sample_counts(Nasal_3M1Y_all_filt, function(abund) 1*(abund>0))
+Nasal_3M1Y_pa_filt # 171 taxa & 3090 Samples
+
+saveRDS(Nasal_3M1Y_pa_filt, file = "Data_subsets/Main_Nasal_Trajectory_Subset.rds")
+```
+
+### Gut data
+```{r} 
+# Common Subject IDs between milk and nasal samples at 3 months
+Common_3m1yG <- intersect(sample_data(subset_samples(Main_data_2, Visit == "3 Months" & SampleType == "Gut"))$CHILDid,
+                          sample_data(subset_samples(Main_data_2, Visit == "1 Year"  & SampleType == "Gut"))$CHILDid)
+length(Common_3m1yG) # number of infants w/t both 3M and 1Y sample
+
+Gut_3m1y <- subset_samples(Main_data_2, SampleType == "Gut" & (Visit == "3 Months" | Visit == "1 Year") & CHILDid %in% Common_3m1yG) 
+Gut_3m1y 
+
+# Taxa wanted for prevalence trajectory analyses - present in >10% of samples at EITHER 3 Months or 1 Year 
+Gut_3m_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="3 Months"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+Gut_1y_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="1 Year"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+
+Gut_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(Gut_3m_tax_filt, taxonomic.rank = "ASV_taxonomy"), 
+                                  get_taxa_unique(Gut_1y_tax_filt, taxonomic.rank = "ASV_taxonomy")), Gut_3m1y) 
+
+Gut_3M1Y_pa_filt <- transform_sample_counts(Gut_3M1Y_all_filt, function(abund) 1*(abund>0))
+Gut_3M1Y_pa_filt 
+
+saveRDS(Gut_3M1Y_pa_filt, file = "Data_subsets/Main_Gut_Trajectory_Subset.rds")
+```
+
+
+# Derived Variables for Various Trajectory analyses 
+
+## Create Colonization Pattern feature tables (1 = only 3 month, 2 = persistent, 3 = late, 4 = absent)
+Used in stacked bar plots in Figure 4B & 4C; and to derive per-infant colonization pattern summaries (proporition of taxa that are early, late, etc.)
+
+### Nasal data
+```{r}
+N.pa.3m <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "3 Months")
+N.pa.1y <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "1 Year")
+
+## extract otu table and add Participant IDs 
+N_3m_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.3m), "matrix"))), CHILDid=sample_data(N.pa.3m)$CHILDid)
+N_1y_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.1y), "matrix"))), CHILDid=sample_data(N.pa.1y)$CHILDid)
+
+## don't like how data.frame function changed the column names, changing back
+colnames(N_3m_otu)[1:ntaxa(Nasal_3M1Y_pa_filt)] <- row.names(otu_table(N.pa.3m))
+colnames(N_1y_otu)[1:ntaxa(Nasal_3M1Y_pa_filt)] <- row.names(otu_table(N.pa.1y))
+
+N_3m_otu <- N_3m_otu[order(N_3m_otu$CHILDid),]
+N_1y_otu <- N_1y_otu[order(N_1y_otu$CHILDid),]
+
+identical(N_3m_otu$CHILDid, N_1y_otu$CHILDid) # good (doesn't really matter for this analysis though)
+```
+
+```{r}
+N_3m_otu_sdf_m <- melt(N_3m_otu, id.vars = "CHILDid", value.name = "Present_nasal_3m")
+N_1y_otu_sdf_m <- melt(N_1y_otu, id.vars = "CHILDid", value.name = "Present_nasal_1y")
+
+N_3m1y_otu_sdf_m <- merge(N_3m_otu_sdf_m, N_1y_otu_sdf_m, by= c("CHILDid", "variable"))
+nrow(N_3m1y_otu_sdf_m) == nrow(N_1y_otu_sdf_m) # True, good
+
+# Create Colonization patterns
+N_3m1y_otu_sdf_m$Nasal_colonization <- ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 1 & N_3m1y_otu_sdf_m$Present_nasal_1y == 1, 2,
+                                              ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 1 & N_3m1y_otu_sdf_m$Present_nasal_1y == 0, 1,
+                                                     ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 0 & N_3m1y_otu_sdf_m$Present_nasal_1y == 1, 3, 0))) 
+# CODE: 0=absent, 1=early only, 2 = persistent, 3=late,  only 4 possible options
+
+table(N_3m1y_otu_sdf_m$Nasal_colonization)
+
+N3M1Y_colonize <- dcast(N_3m1y_otu_sdf_m, CHILDid~variable, value.var = "Nasal_colonization", mean)
+dim(N3M1Y_colonize)  # 1545 infants with both time-points, and  171 OTUs 
+
+# N3M1Y_colonize = The nasal colonization pattern feature table. 
+# N_3m1y_otu_sdf_m = use to create per participant summaries (proportion of early, late, etc. per-infant)
+```
+
+### Gut data
+```{r}
+G.pa.3m <- subset_samples(Gut_3M1Y_pa_filt, Visit == "3 Months")
+G.pa.1y <- subset_samples(Gut_3M1Y_pa_filt, Visit == "1 Year")
+
+## extract otu table and add Participant IDs 
+G_3m_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.3m), "matrix"))), CHILDid=sample_data(G.pa.3m)$CHILDid)
+G_1y_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.1y), "matrix"))), CHILDid=sample_data(G.pa.1y)$CHILDid)
+
+## don't like how data.frame function changed the column names, changing back
+colnames(G_3m_otu)[1:ntaxa(Gut_3M1Y_pa_filt)] <- row.names(otu_table(G.pa.3m))
+colnames(G_1y_otu)[1:ntaxa(Gut_3M1Y_pa_filt)] <- row.names(otu_table(G.pa.1y))
+
+
+G_3m_otu <- G_3m_otu[order(G_3m_otu$CHILDid),]
+G_1y_otu <- G_1y_otu[order(G_1y_otu$CHILDid),]
+
+identical(G_3m_otu$CHILDid, G_1y_otu$CHILDid) # good (doesn't really matter for this analysis though)
+```
+
+```{r}
+G_3m_otu_sdf_m <- melt(G_3m_otu, id.vars = "CHILDid", value.name = "Present_gut_3m")
+G_1y_otu_sdf_m <- melt(G_1y_otu, id.vars = "CHILDid", value.name = "Present_gut_1y")
+
+G_3m1y_otu_sdf_m <- merge(G_3m_otu_sdf_m, G_1y_otu_sdf_m, by= c("CHILDid", "variable"))
+nrow(G_3m1y_otu_sdf_m) == nrow(G_3m_otu_sdf_m) # True, good
+
+# Create Colonization patterns
+G_3m1y_otu_sdf_m$Gut_colonization <- ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 1 & G_3m1y_otu_sdf_m$Present_gut_1y == 1, 2,
+                                            ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 1 & G_3m1y_otu_sdf_m$Present_gut_1y == 0, 1,
+                                                   ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 0 & G_3m1y_otu_sdf_m$Present_gut_1y == 1, 3, 0))) 
+# CODE: 0=absent, 1=early only, 2 = persistent, 3=late,  only 4 possible options
+
+G3M1Y_colonize <- dcast(G_3m1y_otu_sdf_m, CHILDid~variable, value.var = "Gut_colonization", mean)
+dim(G3M1Y_colonize)  # 555 infants with both time-points, 115 OTUs
+
+# G3M1Y_colonize =  The gut colonization pattern feature table
+# G_3m1y_otu_sdf_m = use to create per participant summaries (proportion of early, late, etc. per-infant)
+```
+
+## Summarized Colonization patterns
+Calculate for each Infant, the proportion of taxa that are Early (only 3 month), Persistent (3 month and 1 year), Late (only 1 year) or Absent (not at either time-point)  
+
+### Nasal data
+```{r, warning=FALSE}
+## Make separate columns for Early, Late, etc colonizers (Binary, 1 or 0 for yes or no) 
+N_3m1y_otu_sdf_m$Early <- ifelse(N_3m1y_otu_sdf_m$Nasal_colonization== 1, 1, 0)
+N_3m1y_otu_sdf_m$Persistent <- ifelse(N_3m1y_otu_sdf_m$Nasal_colonization== 2, 1, 0)
+N_3m1y_otu_sdf_m$Late <- ifelse(N_3m1y_otu_sdf_m$Nasal_colonization== 3, 1, 0)
+N_3m1y_otu_sdf_m$Absent <- ifelse(N_3m1y_otu_sdf_m$Nasal_colonization== 0, 1, 0)
+
+## Add another melt level to get column differentiating Early/persistent/late
+N_3m1y_otu_sdf_m2 <- melt(N_3m1y_otu_sdf_m, measure.vars = c("Early", "Persistent", "Late", "Absent"), variable.name = "Colonization_Pattern")
+### "value" is a binary 1, 0 
+
+# Sum number of "1's" for each colonization pattern and each CHILDid - To calculate for each participant - the number of early, late, etc. colonizers.
+N_Sum_Patterns_perInfant <- data_sum(N_3m1y_otu_sdf_m2, varname = "value", groupnames = c("CHILDid", "Colonization_Pattern"))
+
+## quick check
+nrow(N_Sum_Patterns_perInfant)/4 == nrow(N3M1Y_colonize) # true, good
+
+# The proportion of OTUs will actually be essentially the same variable as the number of OTUs in each of these categories since it's divided by the total number of ASVs in the dataset. I prefer this to using the total number of OTUs a participant has at both time-points since that adds weight to another component (Observed ASVs) other than colonization patterns into the analysis - I would rather look directly at colonization patterns.
+N_Sum_Patterns_perInfant$Pct_OTUs_Colonize <- N_Sum_Patterns_perInfant$sum*100/ntaxa(Nasal_3M1Y_pa_filt)
+
+### re-structure data
+N_PerInfant_coloniz <- dcast(N_Sum_Patterns_perInfant, CHILDid~Colonization_Pattern, value.var = "Pct_OTUs_Colonize", mean)
+dim(N_PerInfant_coloniz)
+
+## Extra - Side-note - can also summarize by taxa - not used in any analyses here but could be used maybe
+N_Sum_Patterns_perTaxa <- data_sum(N_3m1y_otu_sdf_m2, varname = "value", groupnames = c("variable", "Colonization_Pattern"))
+N_Sum_Patterns_perTaxa$Pct_Taxa_Colonize_Infant <- N_Sum_Patterns_perTaxa$sum*100/nrow(G3M1Y_colonize)
+N_PerTaxa_coloniz <- dcast(N_Sum_Patterns_perTaxa, variable~Colonization_Pattern, value.var = "Pct_Taxa_Colonize_Infant", mean)
+### write.csv(N_PerTaxa_coloniz, file="Output/Nasal_perTaxa_PctColonizeInfant.csv")
+```
+N_PerInfant_coloniz, to merge with colonication feature table
+
+### Gut data
+```{r, warning=FALSE}
+
+## Make separate columns for Early, Late, etc colonizers (Binary, 1 or 0 for yes or no) 
+G_3m1y_otu_sdf_m$Early <- ifelse(G_3m1y_otu_sdf_m$Gut_colonization== 1, 1, 0)
+G_3m1y_otu_sdf_m$Persistent <- ifelse(G_3m1y_otu_sdf_m$Gut_colonization== 2, 1, 0)
+G_3m1y_otu_sdf_m$Late <- ifelse(G_3m1y_otu_sdf_m$Gut_colonization== 3, 1, 0)
+G_3m1y_otu_sdf_m$Absent <- ifelse(G_3m1y_otu_sdf_m$Gut_colonization== 0, 1, 0)
+
+## Add another melt level to get column differentiating Early/persistent/late
+G_3m1y_otu_sdf_m2 <- melt(G_3m1y_otu_sdf_m, measure.vars = c("Early", "Persistent", "Late", "Absent"), variable.name = "Colonization_Pattern")
+### "value" is a binary 1, 0 
+
+# Sum number of "1's" for each colonization pattern and each CHILDid - To calculate for each participant - the number of early, late, etc. colonizers.
+G_Sum_Patterns_perInfant <- data_sum(G_3m1y_otu_sdf_m2, varname = "value", groupnames = c("CHILDid", "Colonization_Pattern"))
+
+## quick check
+nrow(G_Sum_Patterns_perInfant)/4 == nrow(G3M1Y_colonize) # true, good
+
+# The proportion of OTUs will actually be essentially the same variable as the number of OTUs in each of these categories since it's divided by the total number of ASVs in the dataset. I prefer this to using the total number of OTUs a participant has at both time-points since that adds weight to another component (Observed ASVs) other than colonization patterns into the analysis - I would rather look directly at colonization patterns.
+G_Sum_Patterns_perInfant$Pct_OTUs_Colonize <- G_Sum_Patterns_perInfant$sum*100/ntaxa(Gut_3M1Y_pa_filt)
+
+### re-structure data
+G_PerInfant_coloniz <- dcast(G_Sum_Patterns_perInfant, CHILDid~Colonization_Pattern, value.var = "Pct_OTUs_Colonize", mean)
+dim(G_PerInfant_coloniz)
+
+## Extra - Side-note - can also summarize by taxa - not used in any analyses here but could be used maybe
+G_Sum_Patterns_perTaxa <- data_sum(G_3m1y_otu_sdf_m2, varname = "value", groupnames = c("variable", "Colonization_Pattern"))
+G_Sum_Patterns_perTaxa$Pct_Taxa_Colonize_Infant <- G_Sum_Patterns_perTaxa$sum*100/nrow(G3M1Y_colonize)
+G_PerTaxa_coloniz <- dcast(G_Sum_Patterns_perTaxa, variable~Colonization_Pattern, value.var = "Pct_Taxa_Colonize_Infant", mean)
+### write.csv(G_PerTaxa_coloniz, file="Output/Gut_perTaxa_PctColonizeInfant.csv")
+```
+G_PerInfant_coloniz, to merge with colonization feature table
+
+### Merge Per-Infant Summarized Colonization patterns with Colonization pattern feature table
+```{r, warning=FALSE}
+N3M1Y_colonize_all <- merge(N_PerInfant_coloniz, N3M1Y_colonize, by="CHILDid")
+
+G3M1Y_colonize_all <- merge(G_PerInfant_coloniz, G3M1Y_colonize, by="CHILDid")
+```
+N3M1Y_colonize_all, G3M1Y_colonize_all, to merge with sample metadata / diversity trajectory dataset downstream
+
+
+## Make sample data used to assess change in diversity and colonization patterns 
+
+#### Main variables to include
+```{r} 
+# Keeping only main variables that differ b/t 3M and 1Y samples in Trajectory data 
+Traj_vars <- c("CHILDid", "Shannon", "Observed", "RE_Virus") 
+```
+
+#### Nasal data (n=1545)
+```{r} 
+# Overall 3 mnth and 1 year sample data (already split up)
+sdf_1y_n <- data.frame( subset(sample_data(N.pa.1y), select = Traj_vars), 
+                        row.names = sample_data(N.pa.1y)$CHILDid ) 
+sdf_3m_n <- data.frame( subset(sample_data(N.pa.3m), select = Traj_vars), 
+                        row.names = sample_data(N.pa.3m)$CHILDid )
+
+sdf_N <- merge(sdf_3m_n, sdf_1y_n, by="CHILDid", suffixes = c("_N3m", "_N1y")) # suffices will modify diversity names to indicate sample type and timepoint
+dim(sdf_N)
+
+## extra, just want to rename RE virus
+colnames(sdf_N)[names(sdf_N) == "RE_Virus_N1y"] <- "RE_Virus_1y"
+colnames(sdf_N)[names(sdf_N) == "RE_Virus_N3m"] <- "RE_Virus_3m"
+```
+
+#### Gut data (n=555)
+```{r} 
+# Overall 3 mnth and 1 year sample data (already split up)
+sdf_1y_g <- data.frame( subset(sample_data(G.pa.1y), select = Traj_vars), 
+                        row.names = sample_data(G.pa.1y)$CHILDid ) 
+sdf_3m_g <- data.frame( subset(sample_data(G.pa.3m), select = Traj_vars), 
+                        row.names = sample_data(G.pa.3m)$CHILDid )
+
+sdf_G <- merge(sdf_3m_g, sdf_1y_g, by="CHILDid", suffixes = c("_G3m", "_G1y")) # suffices will modify diversity names to indicate sample type and timepoint
+dim(sdf_G)
+
+## extra, just want to rename RE virus
+colnames(sdf_G)[names(sdf_G) == "RE_Virus_G1y"] <- "RE_Virus_1y"
+colnames(sdf_G)[names(sdf_G) == "RE_Virus_G3m"] <- "RE_Virus_3m"
+```
+
+### Calculate Change in diversity b/t 3 months and 1 year
+```{r} 
+sdf_N <- sdf_N %>% mutate(Shannon_N1y3m = Shannon_N1y - Shannon_N3m) %>% 
+                   mutate(Observed_N1y3m = Observed_N1y - Observed_N3m)
+
+sdf_G <- sdf_G %>% mutate(Shannon_G1y3m = Shannon_G1y - Shannon_G3m) %>% 
+                   mutate(Observed_G1y3m = Observed_G1y - Observed_G3m)
+```
+
+## Merge Colonization pattern data with Diversity Trajectory data
+```{r}
+# Nasal data
+N_3m1y_otu_sdf2 <- merge(sdf_N, N3M1Y_colonize_all, by="CHILDid") # merging with sample data
+dim(N_3m1y_otu_sdf2)
+
+# Gut data
+G_3m1y_otu_sdf2 <- merge(sdf_G, G3M1Y_colonize_all, by="CHILDid") # merging with sample data
+dim(G_3m1y_otu_sdf2)
+```
+
+
+## Total Trajectory Dataset - Combine Nasal and Gut data
+```{r} 
+length(intersect(G_3m1y_otu_sdf2$CHILDid, N_3m1y_otu_sdf2$CHILDid)) # 393 infants with gut-nasal at both time-points 
+
+intersect(colnames(N_3m1y_otu_sdf2), colnames(G_3m1y_otu_sdf2)) # Other than CHILDid, this is the list of variables that will have the suffixes in the below merge script appended to them because they are present in BOTH the nasal and gut data
+
+## Merge nasal and gut datasets
+GN_3m1y_all_traj <- merge(N_3m1y_otu_sdf2, G_3m1y_otu_sdf2, 
+                           by="CHILDid", all = TRUE, suffixes = c("_N1y3m", "_G1y3m") )
+
+# Make CHILDid's rownames instead
+row.names(GN_3m1y_all_traj) <- GN_3m1y_all_traj$CHILDid
+GN_3m1y_all_traj$CHILDid <- NULL
+
+# Remove RE Virus variables (will add to Sample Meatadata linking with this dataset instead, too complicated to have 4 versions)
+GN_3m1y_all_traj$RE_Virus_1y_G1y3m <- NULL
+GN_3m1y_all_traj$RE_Virus_3m_G1y3m <- NULL
+GN_3m1y_all_traj$RE_Virus_1y_N1y3m <- NULL
+GN_3m1y_all_traj$RE_Virus_3m_N1y3m <- NULL
+dim(GN_3m1y_all_traj) # N= 1707 - 1545 + 555 - 393 (this is correct N) - this is the trajectory data to be used
+
+# colnames(G_3m1y_otu_sdf2) ## Gut Traj's start at Shannon_G3m; at column number 182
+which(names(GN_3m1y_all_traj) == "Shannon_G3m") # at line 182
+```
+Compiled Nasal/Gut Trajectory data: GN_3m1y_all_traj
+
+
+### Create Sample Metadata Subset that Links with the Trajectory Dataset
+
+**Main variables to include**
+```{r} 
+# Keeping only main variables in dataset (won't use all of these but keeping anyway just in case). Doesn't include "Shannon", "Observed", "RE_Virus", will add these from trajectory datasets
+Main_vars <- c("CHILDid", "WheezeTraj", "asthma_3y", "asthma_5y", "atopy3y", "BM_mode_3m", "BF_status_3m_sampling", "BF_12m_sampling", "older_sibs", "older_sibs_living", "AwayfromHome_1y", "childgender", "atbx", "Mom_abs_3mo_IV_oral_supp_yn", "Mother_abs_birth_yn", "StudyCenter", "birthmode2", "mom_bmi_best", "mom_age_birth", "Season_1y", "Season_3m", "age_1y_months", "age_3m_months", "prenatal_smoke", "gest_days", "weight_0", "weight_3","weight_12", "race_mom4", "mom_asthma_ever", "mom_atopy", "colds_0to3m", "Fever_6m", "Fever_3m", "Fever_1y", "Solids_3m_sampling", "Smoked_AtHome3m", "Furry_Pets_3m", "coldsnum_0to3m", "coldsnum_6to12m", "mom_smoke_1y", "BF_duration_imp") 
+
+### Use Participant-Level metadata (not longitudinal version) - this is easier for trajectory data
+CHILD_metadata_all <- readRDS(file="Preprocessing/metadata_input/3FINAL_Full_Cleaned_KF_Modified_Updated-05222021_withSprio") 
+
+CHILD_metadata_sub <- subset(CHILD_metadata_all, select = Main_vars)
+```
+
+**Additional edits and merge**
+```{r} 
+### Also Adding RE Virus from Traj datasets (participant level data, not longitudinal - so separate vars for 3m and 1y)
+RE_virus_df <- merge(subset(N_3m1y_otu_sdf2, select = c("CHILDid", "RE_Virus_3m", "RE_Virus_1y")),
+                     subset(G_3m1y_otu_sdf2, select = c("CHILDid", "RE_Virus_3m", "RE_Virus_1y")), 
+                     by="CHILDid", all=TRUE)
+#### Need to merge into one - some RE virus values missing from nasal data, some missing from gut data, need to consolidate...
+RE_virus_df$RE_Virus_3m <- ifelse(is.na(RE_virus_df$RE_Virus_3m.x), as.character(RE_virus_df$RE_Virus_3m.y), as.character(RE_virus_df$RE_Virus_3m.x))
+RE_virus_df$RE_Virus_1y <- ifelse(is.na(RE_virus_df$RE_Virus_1y.x), as.character(RE_virus_df$RE_Virus_1y.y), as.character(RE_virus_df$RE_Virus_1y.x))
+
+# Merge metadata
+CHILD_metadata_all2 <- merge(CHILD_metadata_sub, 
+                             subset(RE_virus_df, select = c("CHILDid", "RE_Virus_3m", "RE_Virus_1y")), 
+                             by="CHILDid", all.x = TRUE) 
+row.names(CHILD_metadata_all2) <- CHILD_metadata_all2$CHILDid
+```
+
+```{r} 
+# ADDED MODIFICATIONS to sample metadata 
+
+## Creating Variable for Asthma at 3 years (Probable) that Persists to 5 years (at least possible or probable at 5 years)
+CHILD_metadata_all2$asthma_3y_5y <- ifelse(CHILD_metadata_all2$asthma_3y == "Probable" & 
+                                            CHILD_metadata_all2$asthma_5y %in% c("Possible", "Probable"), "Yes", 
+                                          ifelse(is.na(CHILD_metadata_all2$asthma_5y) | is.na(CHILD_metadata_all2$asthma_3y) |
+                                                   CHILD_metadata_all2$asthma_3y == "Possible", NA, "No"))
+
+table(CHILD_metadata_all2$asthma_3y_5y)
+
+
+## Make the "Probable" Asthma level "Yes" for asthma
+CHILD_metadata_all2$asthma_3y <- gsub("Probable", "Yes", CHILD_metadata_all2$asthma_3y)
+CHILD_metadata_all2$asthma_5y <- gsub("Probable", "Yes", CHILD_metadata_all2$asthma_5y)
+
+#### Edit some variables that we decided to use but still need to re-code NA values, etc.
+CHILD_metadata_all2$Fever_1y <- as.factor(ifelse(CHILD_metadata_all2$Fever_1y %in% c(8888, 999), NA, CHILD_metadata_all2$Fever_1y))
+CHILD_metadata_all2$Fever_1y <- revalue(CHILD_metadata_all2$Fever_1y, c("0"="No", "1"="Yes"))
+
+CHILD_metadata_all2$Fever_3m <- as.factor(ifelse(CHILD_metadata_all2$Fever_3m %in% c(8888, 999), NA, CHILD_metadata_all2$Fever_3m))
+CHILD_metadata_all2$Fever_3m <- revalue(CHILD_metadata_all2$Fever_3m, c("0"="No", "1"="Yes"))
+
+CHILD_metadata_all2$older_sibs_living <- ifelse(CHILD_metadata_all2$older_sibs_living %in% c("8888", "999"), NA, CHILD_metadata_all2$older_sibs_living)
+
+### for number of colds if any colds question, 888 indicates no response b/c there were no colds, just make 0
+CHILD_metadata_all2$coldsnum_0to3m <- ifelse(CHILD_metadata_all2$coldsnum_0to3m == "8888", NA, 
+                                             ifelse(CHILD_metadata_all2$coldsnum_0to3m == "888", 0, CHILD_metadata_all2$coldsnum_0to3m))
+
+
+# need to change factor levels based on which factor we want as reference for downstream models for the factors/characters in this list:
+Main_vars_Traj <- c("BF_status_3m_sampling", "BF_12m_sampling", "RE_Virus_1y", "RE_Virus_3m", "colds_0to3m", "coldsnum_6to12m", "Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter","Season_3m", "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke",  "mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy", "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+
+# split numeric and categorical variables to edit categorical variables, then re-merge with numeric
+sdf_3m2_num <- CHILD_metadata_all2 %>% select_if(is.numeric) 
+sdf_cat <- subset(CHILD_metadata_all2, select = setdiff(Main_vars_Traj, colnames(sdf_3m2_num))) # Factors to modify levels for; in Main_vars_Traj but not numeric
+
+sdf_other <- subset(CHILD_metadata_all2, select = setdiff(colnames(CHILD_metadata_all2), colnames(sdf_cat))) # DF of Metadata not being edited
+
+# check that all cols are accounted for in two subsets
+sum(dim(sdf_other)[2] + dim(sdf_cat)[2]) == dim(CHILD_metadata_all2)[2] # TRUE, good
+
+# make all characters factors 
+sdf_cat[] <- lapply(sdf_cat[], factor)
+lapply(sdf_cat[], levels) # better to swap factor level for most of these... Nearly all need to be reversed
+
+# Want all factor levels to be reversed - this way the "no" group will generally be the last group (ref for lmp is last level)
+sdf_cat[] <- lapply(sdf_cat[], function(x) {factor(x, levels = rev(levels(x)))})
+
+## A few exceptions to the rule, want a different order for these factor levels
+sdf_cat$BF_status_3m_sampling <- factor(sdf_cat$BF_status_3m_sampling, levels = c("Exclusive", "Partial", "No BM"))
+sdf_cat$BF_12m_sampling <- factor(sdf_cat$BF_12m_sampling, levels = c("Yes", "No"))
+sdf_cat$birthmode2 <- factor(sdf_cat$birthmode2, levels = c("Caesarean", "Vaginal"))
+sdf_cat$race_mom4 <- factor(sdf_cat$race_mom4, levels = c("Asian", "FN", "Other", "Caucasian"))
+sdf_cat$StudyCenter <- factor(sdf_cat$StudyCenter, levels = c("Edmonton", "Toronto", "Vancouver", "Winnipeg"))
+sdf_cat$Season_3m <- factor(sdf_cat$Season_3m, levels = c("Spring", "Summer", "Fall", "Winter"))
+sdf_cat$Season_1y <- factor(sdf_cat$Season_1y, levels = c("Spring", "Summer", "Fall", "Winter"))
+
+lapply(as.list(sdf_cat), levels) # Looks much better
+
+# re-merge data using data.frame function - is maintained... just double check rownames are the same in both first!
+identical(rownames(sdf_cat), rownames(sdf_other))
+CHILD_metadata_all3 <- data.frame(sdf_cat, sdf_other)
+
+saveRDS(CHILD_metadata_all3, file="Preprocessing/metadata_input/4FINAL_Full_Cleaned_KF_Modified_V2_withRE_forSubj_withNG.rds") ## all CHILD participants, save edited version
+```
+
+#### Link Participant metadata with Microbiome Trajectory data and save**
+```{r} 
+sdf_forAllTrajs <- subset(CHILD_metadata_all3, row.names(CHILD_metadata_all3) %in% row.names(GN_3m1y_all_traj)) 
+
+# Check that row IDs and order is exactly the same - good
+identical(row.names(sdf_forAllTrajs), row.names(GN_3m1y_all_traj))
+
+# Won't merge but just combine into a list of dataframes before saving as a Trajectory analysis "package"
+## If wanting to split nasal and gut again later, just remove NA rows based on a known nasal-specific variable like Shannon_N1y3m (then any gut-specific taxa colonization features will all be all NA as well and these columns can be removed based on this)
+Traj_data_ls <- list(GN_3m1y_all_traj, sdf_forAllTrajs)
+names(Traj_data_ls) <- c("Trajectories_Nasal_to181_Gut_at182", "Metadata") # indicating where gut Trajs start
+str(Traj_data_ls)
+
+saveRDS(Traj_data_ls, file="Data_subsets/ALL_Trajectory_Derived_Data.rds") 
+```
+
+
+

@@ -1,0 +1,1379 @@
+---
+title: "Processing and Decontamination for Nasal and Gut Microbiome Data"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+### Load packages and set up
+```{r, message=FALSE, warning=FALSE}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(ggplot2); packageVersion("ggplot2")
+library(tidyverse); packageVersion('tidyverse')
+library(reshape2); packageVersion('reshape2')
+library(decontam); packageVersion('decontam')
+library(RColorBrewer); packageVersion('RColorBrewer')
+library(vegan); packageVersion('vegan')
+library(gtools); packageVersion('gtools')
+```
+
+```{r}
+source("Functions.R")
+```
+
+```{r}
+options(scipen=999) # shutting off scientific notation
+
+theme_set(theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=9), axis.text = element_text(color="black", size=8)))
+
+mycols <- c("#bcb3ff","#479700","#0062e0","#6bde61","#b27fff","#f5be38","#ff77d4","#00b071","#d30036","#008599","#ff9131","#5d4a78","#c26600","#abcec1","black","#c9cb77","#932959","#5b5e00","#ff9d95","#3b5b24","#885a00","#afb0af","#2e0700", "#ff0099","#d7552f", "#38785e", "#5acb9d", "#f5ed14") # 28
+
+mycols22 <- c("#bcb3ff","#479700","#0062e0","#6bde61","#b27fff","#f5be38","#ff77d4","#00b071","#d30036","#008599","#ff9131","#5d4a78","#c26600","#abcec1","black","#c9cb77","#932959","#5b5e00","#ff9d95","#3b5b24","#885a00","#afb0af") # 22
+```
+
+
+# NASAL DATASET PREPROCESSING AND QC CHECKS 
+
+```{r}
+physeq_child <- readRDS(file='output/datasets/phy_nasal_Close_CHILD_March2021.rds') 
+```
+
+## Table of Read Counts by Sample Type before PreProcessing
+```{r, warning=FALSE, message=FALSE}
+# CHECKS
+## Overall summary 
+summary(sample_data(physeq_child)$readcount1)
+
+## Also check read count summary table
+depths_summary <- data_summary_V2(sample_data(physeq_child), varname="readcount1", groupnames=c("SampleType"))
+depths_summary
+```
+
+```{r}
+# other quick check for manuscript, the number of OTUs in the total dataset, for samples vs controls
+Sample_py_check <- subset_samples(physeq_child, SampleType == "Sample")
+Sample_py_check <- prune_taxa(taxa_sums(Sample_py_check)>0, Sample_py_check)
+Sample_py_check
+
+Ext_py_check <- subset_samples(physeq_child, SampleType == "extraction_neg")
+Ext_py_check <- prune_taxa(taxa_sums(Ext_py_check)>0, Ext_py_check)
+Ext_py_check
+
+PCR_py_check <- subset_samples(physeq_child, SampleType == "PCR_neg")
+PCR_py_check <- prune_taxa(taxa_sums(PCR_py_check)>0, PCR_py_check)
+PCR_py_check
+```
+
+
+## 1. Removed reads assigned to Eukaryota or Unassigned at the Kingdom level, assigned to the Family of mitochondria, or Order of Chloroplast 
+```{r}
+physeq_bac <- subset_taxa(physeq_child, Kingdom != "Eukaryota" & Family != "Mitochondria" & Order != "Chloroplast") # Note that Chloroplast is in the Order level in SILVA 
+physeq_bac  
+```
+
+### Read Counts After Step 1
+*Also adding read counts to metadata as "readcount_bacteria"*
+```{r, warning=FALSE, message=FALSE}
+##Assign read count sample data for physeq_bac
+sample_data(physeq_bac)$readcount_bacteria <- sample_sums(physeq_bac) # same order so can do this 
+
+# CHECKS
+summary(sample_data(physeq_bac)$readcount_bacteria)
+
+## Also check read count summary table
+depths_summary2 <- data_summary(sample_data(physeq_bac), varname="readcount_bacteria", groupnames=c("SampleType"))
+depths_summary2
+```
+
+```{r}
+# other quick check, the number of OTUs in the total dataset, for samples vs controls
+Sample_py_check <- subset_samples(physeq_bac, SampleType == "Sample")
+Sample_py_check <- prune_taxa(taxa_sums(Sample_py_check)>0, Sample_py_check)
+Sample_py_check
+
+Ext_py_check <- subset_samples(physeq_bac, SampleType == "extraction_neg")
+Ext_py_check <- prune_taxa(taxa_sums(Ext_py_check)>0, Ext_py_check)
+Ext_py_check
+
+PCR_py_check <- subset_samples(physeq_bac, SampleType == "PCR_neg")
+PCR_py_check <- prune_taxa(taxa_sums(PCR_py_check)>0, PCR_py_check)
+PCR_py_check
+```
+
+```{r, include=FALSE}
+saveRDS(physeq_bac, file='output/datasets/physeq_nasal_bacteria.rds')
+```
+
+### Read Count by Sample Type
+```{r}
+sdf <- as(sample_data(physeq_bac), "data.frame")
+
+ggplot(sdf, aes(x=SampleType, y=readcount_bacteria)) + geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.35, aes(color = SampleType), size=0.75) + geom_violin(trim=FALSE) + geom_boxplot(width=0.1, outlier.shape = NA, alpha=0.1) + labs(y="Read Count", x="Sample Type") + scale_y_continuous(expand = c(0,0))
+```
+
+### Read Count by Sequencing Run
+```{r, warning=FALSE}
+sdf$RunID <- gsub("^LR", "", sdf$RunID)
+
+depth_PerRun <- data_summary_V2(sdf, varname="readcount_bacteria", groupnames=c("SampleType", "RunID"))
+
+write.csv(depth_PerRun, file="output/Nasal_preDeconReadCounts_032021.csv", quote=FALSE)
+depth_PerRun
+```
+
+```{r, warning=FALSE, fig.width=9, fig.height=7}
+sdf_samps <- subset(sdf, SampleType == "Sample") # Only checking CHILD samples 
+sdf_samps$RunID <- factor(sdf_samps$RunID)
+
+ggplot(sdf_samps, aes(x=RunID, y=readcount_bacteria)) + geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.4) + geom_boxplot(outlier.shape = NA, alpha=0) + theme(legend.position = "none", axis.text = element_text(size = 7)) + scale_y_continuous(limits = c(0,400000)) + labs(y="Sample Depth", x="Run ID") 
+```
+
+
+## 2. Identify Contaminants Using Decontam - Prevalence Method - and Removed Contaminants
+Extraction contaminants were identified separately from PCR contaminants by running decontam once using only extraction negative controls and once using PCR negative controls. The rational for this is that contaminants in extraction reagents tend to be different from contaminants in PCR reagents, and would have a prevalence around 0 in PCR reagents (and vice-versa for PCR contaminants). Assessing prevalence of extraction contaminants only in extraction negative controls provides a more truthful prevalence estimation.
+
+In addition, decontam works best when negative controls and samples are from the same 'batch' of reagents. This cannot be the case across all sequencing runs and we cannot determine this precisely without lot numbers. However we will at least exclude samples from sequencing runs that do not have a PCR or extraction negative control, since these runs will not have a 'representative' in the pool of PCR or extraction negative controls used to identify contaminants. These sequencing runs will be excluded from the identification of general contaminants. In addition we cannot use decontam on each run individually because a larger sample size of negative controls is required for accurate prevalence calculations. Decontam will only been used for the purpose of removing general contaminants assumed to be 'universal' across many runs. To avoid inadvertent creation of batch effects, we have to assume that a contaminant cannot also be a true signal and they should be removed from all sequencing runs rather than selectively removed from individual runs. 
+
+**PCR Contaminants**
+```{r}
+# Adding variable to sample data for decontam algorithm
+sample_data(physeq_bac)$is.PCRneg <- ifelse(sample_data(physeq_bac)$SampleType == "PCR_neg", TRUE, ifelse(sample_data(physeq_bac)$SampleType == "extraction_neg", NA, FALSE)) 
+table(sample_data(physeq_bac)$is.PCRneg) # 70 PCR negative controls, FALSE will be used for samples/positive controls, extraction NCs made NA and will be excluded from test
+
+# dataset of runs containing PCR negatives
+PCR_Runs <- as.data.frame(table(sample_data(physeq_bac)$is.PCRneg, sample_data(physeq_bac)$RunID))
+PCR_Runs_2 <- subset(PCR_Runs, Freq >0 & Var1 ==TRUE)
+PCR_Run <- as.character(PCR_Runs_2$Var2)
+PCR_Run  ## these are the runs with at least 1 PCR neg included
+
+
+# To identify PCR contaminants, only use runs that actually had at least 1 PCR NC 
+physeq_bac_PCR <- subset_samples(physeq_bac, RunID %in% PCR_Run)
+table(sample_data(physeq_bac_PCR)$is.PCRneg) #  number of samples and NCs used to Identify PCR contaminants
+
+set.seed(148075)
+contam_pa <- isContaminant(physeq_bac_PCR, method="prevalence", neg="is.PCRneg", threshold=0.4) 
+
+table(contam_pa$contaminant) # 245 PCR contaminants
+```
+
+**Extraction Contaminants**
+```{r}
+### using same method as was done for PCR contaminants
+sample_data(physeq_bac)$is.Extneg <- ifelse(sample_data(physeq_bac)$SampleType == "extraction_neg", TRUE, ifelse(sample_data(physeq_bac)$SampleType == "PCR_neg", NA, FALSE)) 
+table(sample_data(physeq_bac)$is.Extneg) 
+
+Ext_Runs <- as.data.frame(table(sample_data(physeq_bac)$is.Extneg, sample_data(physeq_bac)$RunID))
+Ext_Runs_2 <- subset(Ext_Runs, Freq >0 & Var1 ==TRUE)
+Ext_Run <- as.character(Ext_Runs_2$Var2)
+Ext_Run  ## these are the runs with at least 1 Extraction neg included
+
+physeq_bac_Ext <- subset_samples(physeq_bac, RunID %in% Ext_Run)
+table(sample_data(physeq_bac_Ext)$is.Extneg) #  number of samples and NCs used to Identify Extraction contaminants
+
+set.seed(148075)
+Extcontam_pa <- isContaminant(physeq_bac_Ext, method="prevalence", neg="is.Extneg", threshold=0.4)  
+
+table(Extcontam_pa$contaminant)  # 257 Extraction contaminants
+```
+
+**ASVs identified as contaminants using both PCR and extraction negative controls**
+```{r}
+length(intersect(rownames(subset(contam_pa, contaminant==TRUE)), rownames(subset(Extcontam_pa, contaminant==TRUE)))) # only 24 are both extraction & PCR contaminants
+```
+
+
+### Verify the Prevalence and Taxonomy of OTUs in Samples compared to PCR and Extraction Negative Controls
+```{r}
+# Make phyloseq object of presence-absence in negative controls and true samples
+physeq_bac.pa <- transform_sample_counts(physeq_bac, function(abund) 1*(abund>0))
+pa.neg <- subset_samples(physeq_bac.pa, SampleType == "extraction_neg")
+pa.pcr <- subset_samples(physeq_bac.pa, SampleType == "PCR_neg")
+pa.samp <- subset_samples(physeq_bac.pa, SampleType == "Sample")
+
+### sample sizes
+N_Ext <- nrow(sample_data(pa.neg))
+N_PCR <- nrow(sample_data(pa.pcr))
+N_samp <- nrow(sample_data(pa.samp))
+
+# Make data.frame of prevalence in positive and negative samples for contaminants (using 0.05 and NoHb)
+df.pa <- data.frame(Prevalence_PCR_neg=taxa_sums(pa.pcr)*100/N_PCR, Prevalence_Extraction_neg=taxa_sums(pa.neg)*100/N_Ext, Prevalence_Sample=taxa_sums(pa.samp)*100/N_samp,
+                    Ext_contaminant=Extcontam_pa$contaminant,
+                    PCRcontaminant=contam_pa$contaminant,
+                      taxonomy=as(tax_table(physeq_bac.pa), "matrix"))
+
+# asthetic edits
+Main_pyla_v <- c("Firmicutes", "Proteobacteria", "Bacteroidota", "Actinobacteriota")
+df.pa$Main_Phylum <- ifelse(df.pa$taxonomy.Phylum %ni% Main_pyla_v, "Other", df.pa$taxonomy.Phylum)
+df.pa$Main_Phylum <- factor(df.pa$Main_Phylum, levels = c(Main_pyla_v, "Other"))
+
+df.pa$contaminant <- ifelse(df.pa$Ext_contaminant == TRUE, "Ext. contaminant", ifelse(df.pa$PCRcontaminant == TRUE, "PCR contaminant", "Sample"))
+
+df.pa$contaminant <- factor(df.pa$contaminant, levels = c("Sample", "Ext. contaminant", "PCR contaminant"))
+
+write.csv(df.pa, file="output/Nasal_Contaminant_InFo.csv", quote = FALSE)
+```
+
+**True samples vs PCR Negatives**
+```{r}
+ggplot(data=df.pa, aes(x=Prevalence_PCR_neg, y=Prevalence_Sample, shape=PCRcontaminant, color=Main_Phylum, size=PCRcontaminant)) + geom_point(alpha=0.75) + xlab("Prevalence % (PCR Negatives)") + ylab("Prevalence % (True Samples)") + theme(legend.position="right") + labs(color="Phylum") + scale_color_manual(values = c("#180681", "#c93aa3", "#81f533", "#b7865e", "grey")) + scale_size_manual(values=c(2.5,3.5,3.5)) 
+```
+
+**True samples vs Extraction Negatives**
+```{r}
+ggplot(data=df.pa, aes(x=Prevalence_Extraction_neg, y=Prevalence_Sample, shape=Ext_contaminant, color=Main_Phylum, size=Ext_contaminant)) + geom_point(alpha=0.75) + xlab("Prevalence % (Extraction Negatives)") + ylab("Prevalence % (True Samples)") + theme(legend.position="right") + labs(color="Phylum") + scale_color_manual(values = c("#180681", "#c93aa3", "#81f533", "#b7865e", "grey")) + scale_size_manual(values=c(2.5,3.5,3.5)) 
+```
+**PCR vs Extraction negatives**
+Can see clear split in prevalence of extraction and PCR contaminants - they are not present in both so it is important to split algorithm
+```{r}
+ggplot(data=df.pa, aes(x=Prevalence_Extraction_neg, y=Prevalence_PCR_neg, shape=contaminant, color=Main_Phylum, size=contaminant)) + geom_point(alpha=0.75) + xlab("Prevalence % (Extraction Negatives)") + ylab("Prevalence % (PCR Negatives)") + theme(legend.position="right") + labs(color="Phylum") + scale_color_manual(values = c("#180681", "#c93aa3", "#81f533", "#b7865e", "grey")) + scale_size_manual(values=c(2.5,3.5,3.5)) 
+```
+
+**List of Families that Contaminant OTUs are Assigned to**
+```{r}
+df.pa_contaminants_Ext <- subset(df.pa, Ext_contaminant == TRUE)
+table(df.pa_contaminants_Ext$taxonomy.Family) # also showing the number of OTUs in each family
+```
+
+```{r}
+df.pa_contaminants_PCR <- subset(df.pa, PCRcontaminant == TRUE )
+table(df.pa_contaminants_PCR$taxonomy.Family) 
+```
+
+
+### Removed OTUs identified as potential PCR and extraction contaminants by decontam  
+```{r}
+# Remove using OTU ID b/c the position of the contaminant changes if we remove taxa from the phyloseq object
+contam_pa_PCR <- subset(contam_pa, contaminant == TRUE)
+contam_pa_Ext <- subset(Extcontam_pa, contaminant == TRUE)
+
+# REMOVE PCR CONTAMINANTS
+Py_nonPCRcontam <- subset_taxa(physeq_bac, ASV %ni% rownames(contam_pa_PCR)) 
+summary(sample_sums(Py_nonPCRcontam) - sample_sums(physeq_bac)) # Median number of reads removed from PCR contamination: 75 
+
+
+# REMOVE EXTRACTION CONTAMINANTS
+Py_nonAllcontam <- subset_taxa(Py_nonPCRcontam, ASV %ni% rownames(contam_pa_Ext)) 
+summary(sample_sums(Py_nonAllcontam) - sample_sums(Py_nonPCRcontam)) # Median number of reads removed from additional extraction contamination: 231 
+
+Py_nonAllcontam #17551 taxa, nearlly all remaining
+```
+
+```{r, include=FALSE}
+#saveRDS(Py_nonAllcontam, file='output/datasets/N_phyloseq_postDecontam.rds')
+```
+
+
+### Read Counts after Step 2, contaminant removal
+*Also adding read counts to metadata as "readcount_postDecon"*
+```{r}
+sample_data(Py_nonAllcontam)$readcount_postDecon <- sample_sums(Py_nonAllcontam)
+  
+## check read count summary table
+depths_summary3 <- data_summary_V2(sample_data(Py_nonAllcontam), varname="readcount_postDecon", groupnames=c("SampleType"))
+depths_summary3 
+```
+After contaminant removal, read counts of Negative controls look fine relative to the high read counts of samples
+
+
+```{r}
+# other quick check, the number of OTUs in the total dataset, for samples vs controls
+Sample_py_check <- subset_samples(Py_nonAllcontam, SampleType == "Sample")
+Sample_py_check <- prune_taxa(taxa_sums(Sample_py_check)>0, Sample_py_check)
+Sample_py_check
+
+Ext_py_check <- subset_samples(Py_nonAllcontam, SampleType == "extraction_neg")
+Ext_py_check <- prune_taxa(taxa_sums(Ext_py_check)>0, Ext_py_check)
+Ext_py_check
+
+PCR_py_check <- subset_samples(Py_nonAllcontam, SampleType == "PCR_neg")
+PCR_py_check <- prune_taxa(taxa_sums(PCR_py_check)>0, PCR_py_check)
+PCR_py_check
+```
+
+### Read Count by Sample Type
+```{r}
+sdf <- as(sample_data(Py_nonAllcontam), "data.frame")
+
+ggplot(sdf, aes(x=SampleType, y=readcount_postDecon)) + geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.3, aes(color = SampleType)) + geom_violin(trim=FALSE) + geom_boxplot(width=0.1, outlier.shape = NA, alpha=0.1) + labs(y="Sample Depth", x="Sample Type") + scale_y_continuous(limits = c(-100, 300000), expand = c(0,0))
+```
+
+### Read Count by Sequencing Run
+```{r}
+sdf$RunID <- gsub("^LR", "", sdf$RunID)
+
+depth_PerRun <- data_summary_V2(sdf, varname="readcount_postDecon", groupnames=c("SampleType", "RunID"))
+
+write.csv(depth_PerRun, file="output/N_postDeconReadCounts.csv", quote=FALSE)
+
+depth_PerRun
+```
+
+```{r, warning=FALSE, fig.width=9, fig.height=7}
+sdf_samps <- subset(sdf, SampleType == "Sample")
+
+ggplot(sdf_samps, aes(x=RunID, y=readcount_postDecon)) + geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.4) +  geom_boxplot(outlier.shape = NA, alpha=0) + theme(legend.position = "none", axis.text = element_text(size = 7)) + scale_y_continuous(limits = c(0,400000)) + labs(y="Sample Depth", x="Run ID") 
+```
+
+
+## 3. Determine Appropriate Sample Read Count Threshold and Remove Low Read Count Samples and Controls
+
+### Read counts of samples
+*Nearly all samples are retained with the cutoff of 8000 reads and this is the original threshold used for the milk/gut dataset - it also works for these sample types - therefore this is the selected threshold*
+```{r}
+# percent of samples with >= 8000 reads
+pct_retained <- round(table(sdf_samps$readcount_postDecon>=8000)["TRUE"]/nrow(sdf_samps)*100, 0)
+pct_retained
+
+#use index to order samples by read depth
+sdf_samps <- sdf_samps[order(sdf_samps$readcount_postDecon),]
+sdf_samps$Index <- seq(nrow(sdf_samps))
+
+label <- paste(pct_retained, "% retained at 8,000 reads/sample, N=", table(sdf_samps$readcount_postDecon>=8000)["TRUE"], sep="")
+  
+ggplot(sdf_samps, aes(x=Index, y=readcount_postDecon)) + geom_point(alpha=0.3, size=1) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.text = element_text(color="black", size=12), legend.position = "right") +
+  labs(y="Sample Depth", x="Samples") + annotate("text", y =1400, x=2050, label = label) + geom_hline(aes(yintercept=8000)) + 
+  scale_y_continuous(limits = c(0,300000), breaks = c(8000, 20000, 100000, 200000, 300000)) 
+```
+
+### Rarefaction slopes, are new OTUs being found or is richness 'saturated' at 8000 reads?
+```{r}
+set.seed(9999)
+# for plot, only include samples
+ForPlot <- subset_samples(Py_nonAllcontam, SampleType == "Sample")
+
+##rarecurve(t(otu_table(ForPlot)), step = 5000, cex=0.5, label = FALSE, xlim = c(5000, 100000)) # step 5000 to increase speed of comp
+
+# rarefaction curve takes forever, below is a quicker check for re-running code in the future - just to check the slope values rather than visualizing entire plot
+summary(rareslope(t(otu_table(ForPlot)), sample=7000))
+
+summary(rareslope(t(otu_table(ForPlot)), sample=8000)) # selected option
+
+summary(rareslope(t(otu_table(ForPlot)), sample=10000)) 
+
+# Almost all have slopes <0.0015 with 8,000 reads/sample and max is 0.008. This is very similar to 10,000 reads/sample which was the other option.
+```
+
+### Remove low read count samples (<8,000 reads/sample) and controls
+```{r}
+Py_Sfilt2 <- prune_samples(sample_sums(Py_nonAllcontam)>=8000, Py_nonAllcontam)
+Py_Sfilt2 <- prune_taxa(taxa_sums(Py_Sfilt2)>0, Py_Sfilt2) # remove OTUs only found in low read count samples too for checks
+Py_Sfilt2
+
+#Focus only on samples and BCs for removal of rare taxa / downstream pre-processing 
+py_Notrarefy_sa <- subset_samples(Py_Sfilt2, SampleType == "Sample" | SampleType == "BC") # 17 biological control samples and 5265 main samples retained
+py_Notrarefy_sa <- prune_taxa(taxa_sums(py_Notrarefy_sa)>0, py_Notrarefy_sa)
+py_Notrarefy_sa ## only 1 outlier NC removed by this, all others were <8000 reads/sample
+
+summary(sample_sums(py_Notrarefy_sa))
+```
+
+## 4. Assess OTU Abundances and Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less
+
+**Use relativized data to identify the OTUs to remove**
+*Based on previous QC checks, relative abundance is more accurate than raw counts even before rarefaction, counts are influenced more by technical variation*
+```{r} 
+py_Notrarefy_Rel  = transform_sample_counts(py_Notrarefy_sa, function(x) (x*100) / sum(x) )
+```
+
+### Assess OTU read counts and relative abundances
+**Make dataset showing relative abundance and read count summaries for each OTU**
+```{r} 
+n <- ncol(otu_table(py_Notrarefy_Rel)) # Sample Size
+
+# Read counts
+taxa_abund_UnRare <- data.frame(Taxa_sum=taxa_sums(py_Notrarefy_sa), Taxa_Rel_sum = taxa_sums(py_Notrarefy_Rel))
+
+taxa_abund_UnRare$Taxa_mean <- taxa_abund_UnRare$Taxa_sum/n
+
+taxa_abund_UnRare$Taxa_Rel_mean <- taxa_abund_UnRare$Taxa_Rel_sum/n
+
+summary(taxa_abund_UnRare$Taxa_Rel_mean) # average rel abundance % per taxa
+summary(taxa_abund_UnRare$Taxa_sum) # total read counts for each taxa
+```
+
+**Identify the proportion of OTUs removed using different thresholds**
+Note that this isn't as important as the porporiton of total reads removed - okay to remove a lot of extremely rare OTUs (makes sense for such a massive dataset)
+```{r} 
+taxa_abund_UnRare$Sumcutoff <- ifelse(taxa_abund_UnRare$Taxa_sum <= 60, "Remove", "Keep")
+taxa_abund_UnRare$AvRelcutoff2 <- ifelse(taxa_abund_UnRare$Taxa_Rel_mean <= 0.0002, "Remove", "Keep")
+taxa_abund_UnRare$AvRelcutoff <- ifelse(taxa_abund_UnRare$Taxa_Rel_mean <= 0.0001, "Remove", "Keep")
+
+# CHECK ratio of kept vs. removed OTUs
+table(taxa_abund_UnRare$Sumcutoff)/(dim(taxa_abund_UnRare)[1]) 
+
+table(taxa_abund_UnRare$AvRelcutoff2)/(dim(taxa_abund_UnRare)[1]) 
+
+table(taxa_abund_UnRare$AvRelcutoff)/(dim(taxa_abund_UnRare)[1]) 
+```
+
+**Average Relative Abundance of each OTU Removed vs. Retained with the Threshold of 0.0001% Mean Relative Abundance**
+```{r}
+taxa_abund_UnRare <- taxa_abund_UnRare[order(taxa_abund_UnRare$Taxa_Rel_mean),]
+taxa_abund_UnRare$Index <- seq(nrow(taxa_abund_UnRare)) 
+
+ggplot(taxa_abund_UnRare,aes(x=Taxa_Rel_mean,y=Index, color = AvRelcutoff)) + 
+  geom_point(alpha=0.55) + xlab("Average relative abundance (%)") + ylab("OTU Average Relative abundance rank") 
+```
+
+```{r, include=FALSE}
+# Extra *Added taxonomy to table of average relative abundances and total read counts and saved table*
+
+taxa_unrel <- as.data.frame(as(tax_table(py_Notrarefy_Rel), "matrix"))
+
+taxa_abund_UnRare2 <- merge(subset(taxa_unrel, select = "Genus"), taxa_abund_UnRare, by="row.names")
+
+## only kept column referring to the cutoff actually used
+taxa_abund_UnRare2$Sumcutoff <- NULL
+taxa_abund_UnRare2$AvRelcutoff2 <- NULL
+
+write.csv(taxa_abund_UnRare2, file="output/Nasal_Unrarified_taxa_abundances.csv", quote = FALSE)
+```
+
+### Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less -  remove from the Count dataset (not relative data)
+```{r}
+data0001_Unrarefy = filter_taxa(py_Notrarefy_Rel, function(x) mean(x) > 0.0001, TRUE) 
+ntaxa(data0001_Unrarefy) # number of taxa retained
+
+ASV_list <- get_taxa_unique(data0001_Unrarefy, taxonomic.rank = "ASV")
+
+UnRarefyCount_prune <- prune_taxa(ASV_list, py_Notrarefy_sa)
+UnRarefyCount_prune 
+```
+
+### Read Counts After Step 4
+*Also adding read counts to metadata as "readcount_postRareTaxaFilt"*
+```{r, warning=FALSE, message=FALSE}
+sample_data(UnRarefyCount_prune)$readcount_postRareTaxaFilt <- sample_sums(UnRarefyCount_prune)
+
+# CHECKS
+## Overall summary 
+summary(sample_data(UnRarefyCount_prune)$readcount_postRareTaxaFilt)
+
+## Also check read count summary table
+depths_summary4 <- data_summary_V2(sample_data(UnRarefyCount_prune), varname="readcount_postRareTaxaFilt", groupnames=c("SampleType"))
+depths_summary4
+
+## Also check number of unqiue OTUs in samples only
+UnRarefyCount_check <- subset_samples(UnRarefyCount_prune, SampleType == "Sample")
+UnRarefyCount_check <- prune_taxa(taxa_sums(UnRarefyCount_check)>0, UnRarefyCount_check)
+UnRarefyCount_check
+```
+
+### Read Count by Sequencing Run
+```{r}
+sdf <- as(sample_data(UnRarefyCount_prune), "data.frame")
+
+depth_PerRun <- data_summary_V2(sdf, varname="readcount_postRareTaxaFilt", groupnames=c("RunID"))
+depth_PerRun
+
+write.csv(depth_PerRun, file="output/Nasal_PostSampleAndRareTaxaFilt_Counts.csv", quote=FALSE)
+```
+
+
+### Final Read Count Assessment
+
+**The percent of average reads per sample retained after each main step**
+```{r}
+# percent of total reads retained after Step 1 (removal of unassigned, Eukaryotic reads and chloroplast/mitochondria reads):
+summary(sdf$readcount_bacteria/sdf$readcount1*100) 
+
+# percent of bacterial reads retained by Step 2 (decontam):
+summary(sdf$readcount_postDecon/sdf$readcount_bacteria*100) 
+
+# not checking step 3 because this is just removal of low read count samples
+ 
+# percent of reads retained by Step 4 (removal of rare taxa):
+summary(sdf$readcount_postRareTaxaFilt/sdf$readcount_postDecon*100)  ## Nearlly all reads are retained after removing rare taxa
+```
+
+```{r, include=FALSE}
+##Save Pruned/Un-Rarified version
+saveRDS(UnRarefyCount_prune, file="output/datasets/Nasal_UnRarefied_Pruned_Py.rds")
+```
+
+
+## 5. Final Dataset Cleaning
+
+### Checked for duplicates, Remove 8 Duplicate Nasal Swab Samples
+Samples that have a "b" at the end of sample ID are replicated re-sequenced in an attempt to obtain higher read counts - some of these are duplicates but were not intended as biological controls
+```{r}
+# (1) Decide whether to use the repeat sample or the originally sequenced sample
+nasal_data <- as(sample_data(UnRarefyCount_prune), "data.frame")
+
+# samples that don't have a CHILDid merged are the duplicates so subset these
+duplicates_check <- subset(nasal_data, is.na(nasal_data$CHILDid) & SampleType == "Sample")
+
+## remove the "B" or "b" that was appended to IDs
+duplicates_check$SeqID_dup <- duplicates_check$SeqID %>% gsub("B$", "", .) %>% gsub("b$", "", .)
+
+## check which samples that were matched with CHILDid's these are duplicates of (if any)
+nasal_data_dupMatches <- subset(nasal_data, SeqID %in% duplicates_check$SeqID_dup)  
+dim(nasal_data_dupMatches)
+## IF present in this list, remove their duplicate with a "B or b" at the end of sample from the phyloseq object - there were 8 samples analyzed twice.
+
+ToRemoveB <- subset(duplicates_check, SeqID_dup %in% nasal_data_dupMatches$SeqID) 
+dim(ToRemoveB) #  These are the 8 samples to remove, they are already present in nasal data
+
+# Remove the identified duplicate samples
+UnRarefyCount_prune2 <- subset_samples(UnRarefyCount_prune, SeqID %ni% ToRemoveB$SeqID) 
+UnRarefyCount_prune2
+```
+
+```{r, include=FALSE}
+saveRDS(UnRarefyCount_prune2, file="final_datasets/01_Nasal_UnRarefied_Py.rds")
+```
+
+
+Note - Step 6: Biological control comparison between different sequencing runs - available but excluded from this Rmd file
+
+
+# GUT DATASET PREPROCESSING AND DATA CHECKS 
+
+```{r}
+gut_noMissing <- readRDS(file='output/datasets/physeq_gut_Closed_CHILD.rds')
+```
+
+## Assess Read Counts by Sample Type before PreProcessing
+```{r, warning=FALSE, message=FALSE}
+## Overall summary 
+summary(sample_data(gut_noMissing)$readcount1)
+
+## Also check read count summary table
+depths_summary_G <- data_summary_V2(sample_data(gut_noMissing), varname="readcount1", groupnames=c("SampleType"))
+depths_summary_G
+```
+
+## 1. Removed reads assigned to Eukaryota or Unassigned at the Kingdom level, assigned to the Family of mitochondria, or Order of Chloroplast
+```{r}
+physeq_G_filt1 <- subset_taxa(gut_noMissing, Kingdom != "Eukaryota" & Family != "Mitochondria" & Order != "Chloroplast") 
+physeq_G_filt1 # 2528 - 2505; 23 'Host associated' OTUs were removed. 
+```
+## 2. Remove the Genus Halomonas - removed in previous manuscripts that use this stool data because it was a known contaminant found in negative controls
+First check the read-count of Halomonas in blanks we know are true negative controls vs samples
+```{r}
+# blanks
+blanks <- subset_samples(physeq_G_filt1, SampleType == "Blank" & readcount1 < 8000) # 29 true blanks distributed across runs 
+
+## Halomonas read count
+summary(sample_sums(subset_taxa(blanks, Genus == "Halomonas"))) 
+
+# samples
+samps <- subset_samples(physeq_G_filt1, SampleType != "Blank")
+
+## Halomonas read count
+summary(sample_sums(subset_taxa(samps, Genus == "Halomonas"))) # Almost no reads in samples
+```
+
+```{r}
+physeq_bac_G <- subset_taxa(physeq_G_filt1, Genus != "Halomonas") 
+physeq_bac_G 
+# 13 Halomonas OTUs were removed
+```
+
+
+### Read Counts after Step 1 & 2
+*Also adding read counts to metadata as "readcount_bacteria"*
+```{r, warning=FALSE, message=FALSE}
+sample_data(physeq_bac_G)$readcount_bacteria <- sample_sums(physeq_bac_G)
+
+# CHECKS
+summary(sample_data(physeq_bac_G)$readcount_bacteria)
+
+## Also check read count summary table
+depths_summary2_G <- data_summary_V2(sample_data(physeq_bac_G), varname="readcount_bacteria", groupnames=c("SampleType"))
+depths_summary2_G
+```
+
+```{r, include=FALSE}
+# Save Physeq Obj
+saveRDS(physeq_bac_G, file='output/datasets/physeq_gut_bacteria')
+```
+
+
+### Read Count by Sample Type
+```{r}
+sdf <- as(sample_data(physeq_bac_G), "data.frame")
+
+ggplot(sdf, aes(x=SampleType, y=readcount_bacteria)) + geom_violin(trim=FALSE) + 
+  geom_boxplot(width=0.1, outlier.shape = NA, alpha=0.1) + 
+  geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.35, aes(color = SampleType), size=0.75) + 
+  labs(y="Read Count", x="Sample Type") +
+  scale_y_continuous(expand = c(0,0))
+```
+
+```{r}
+# There are some high read count blanks but they are very evenly spread across runs and it was suspected in original analyses that these high read count 'blanks' are actually positive controls based on their composition.
+sdf_blanks <- subset(sdf, SampleType == "Blank" & readcount_bacteria<8000)
+table(sdf_blanks$RunID)
+summary(sdf_blanks$readcount_bacteria) # thought to be real blanks
+
+sdf_blanks_H <- subset(sdf, SampleType == "Blank" & readcount_bacteria>8000)
+table(sdf_blanks_H$RunID)
+summary(sdf_blanks_H$readcount_bacteria) # thought to be mislabeled positive controls
+```
+
+### Read Count by Sequencing Run
+```{r, warning=FALSE}
+depth_PerRun <- data_summary_V2(sdf, varname="readcount_bacteria", groupnames=c("SampleType", "RunID"))
+depth_PerRun
+
+write.csv(depth_PerRun, file="output/Gut_preDeconReadCounts_052021.csv", quote=FALSE)
+```
+
+**Number of samples per run and plot of read counts across runs**
+```{r, warning=FALSE}
+sdf_samps <- subset(sdf, SampleType == "Gut") # Only checking samples 
+
+ggplot(sdf_samps, aes(x=RunID, y=readcount_bacteria)) + 
+  geom_jitter(shape=16, position=position_jitter(0.2), alpha=0.4) + 
+  geom_boxplot(outlier.shape = NA, alpha=0) + 
+  theme(legend.position = "none", axis.text = element_text(size = 7)) + 
+  scale_y_continuous(limits = c(0,60000)) + 
+  labs(y="Sample Depth", x="Run ID") 
+```
+
+
+## 3. Determine Appropriate Sample Read Count Threshold and Remove Low Read Count Samples and Controls
+
+### Read counts of samples
+```{r}
+# percent of samples with >= 8000 reads
+pct_retained <- round(table(sdf_samps$readcount_bacteria>=8000)["TRUE"]/nrow(sdf_samps)*100, 0)
+pct_retained
+
+#use index to order samples by read depth
+sdf_samps <- sdf_samps[order(sdf_samps$readcount_bacteria),]
+sdf_samps$Index <- seq(nrow(sdf_samps))
+
+label <- paste(pct_retained, "% retained at 8,000 reads/sample, N=", table(sdf_samps$readcount_bacteria>=8000)["TRUE"], sep="")
+  
+ggplot(sdf_samps, aes(x=Index, y=readcount_bacteria)) + geom_point(alpha=0.3, size=1) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.text = element_text(color="black", size=12), legend.position = "right") +
+  labs(y="Sample Depth", x="Samples") + annotate("text", y =4800, x=1050, label = label) + geom_hline(aes(yintercept=8000)) + 
+  scale_y_continuous(limits = c(0,60000), breaks = c(8000,10000, 20000, 30000, 40000, 50000, 60000))
+```
+
+### Rarefaction slopes, are new OTUs being found or is richness 'saturated' at 8000 reads?
+```{r}
+set.seed(9999)
+#  just for plot, only include samples
+ForPlot <- subset_samples(physeq_bac_G, SampleType == "Gut")
+
+#tiff(file = "Figures/rarecurve.tiff", width = 1500, height = 1500, units = "px", res = 300)
+##rarecurve(t(otu_table(ForPlot)), step = 5000, cex=0.5, label = FALSE, xlim = c(5000, 100000)) # step 5000 to increase speed of comp
+##abline(v = 8000, col="blue")
+##abline(v = 10000, col="blue")
+#dev.off()
+
+# rarefaction curve takes forever, below is a quicker check 
+summary(rareslope(t(otu_table(ForPlot)), sample=7000))
+
+summary(rareslope(t(otu_table(ForPlot)), sample=8000))
+
+summary(rareslope(t(otu_table(ForPlot)), sample=10000)) # other possible option
+
+# All have a very flat slope, good
+```
+
+### Remove low read count samples (<8,000 reads/sample) and controls
+```{r}
+Py_Sfilt2_G <- prune_samples(sample_sums(physeq_bac_G)>=8000, physeq_bac_G)
+Py_Sfilt2_G <- prune_taxa(taxa_sums(Py_Sfilt2_G)>0, Py_Sfilt2_G) # remove OTUs only found in low read count samples too
+Py_Sfilt2_G
+
+#Focus only on samples for removal of rare taxa / downstream pre-processing 
+py_Notrarefy_G <- subset_samples(Py_Sfilt2_G, SampleType == "Gut") 
+py_Notrarefy_G <- prune_taxa(taxa_sums(py_Notrarefy_G)>0, py_Notrarefy_G)
+py_Notrarefy_G
+
+summary(sample_sums(py_Notrarefy_G))
+```
+
+ 
+## 4. Assess OTU Abundances and Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less
+
+**Use relativized data to identify the OTUs to remove**
+```{r} 
+py_Notrarefy_Rel  = transform_sample_counts(py_Notrarefy_G, function(x) (x*100) / sum(x) )
+```
+
+### Assess OTU read counts and relative abundances
+**Make dataset showing relative abundance and read count summaries for each OTU**
+```{r} 
+n <- ncol(otu_table(py_Notrarefy_Rel)) # Sample Size
+
+# Read counts
+taxa_abund_UnRare <- data.frame(Taxa_sum=taxa_sums(py_Notrarefy_G), Taxa_Rel_sum = taxa_sums(py_Notrarefy_Rel))
+
+taxa_abund_UnRare$Taxa_mean <- taxa_abund_UnRare$Taxa_sum/n
+
+taxa_abund_UnRare$Taxa_Rel_mean <- taxa_abund_UnRare$Taxa_Rel_sum/n
+
+summary(taxa_abund_UnRare$Taxa_Rel_mean) # average rel abundance % per taxa
+summary(taxa_abund_UnRare$Taxa_sum) # total read counts for each taxa
+```
+
+**Identify the proportion of OTUs removed using different thresholds**
+Note that this isn't as important as the porporiton of total reads removed - okay to remove a lot of extremely rare OTUs (makes sense for such a massive dataset)
+```{r} 
+taxa_abund_UnRare$Sumcutoff <- ifelse(taxa_abund_UnRare$Taxa_sum <= 60, "Remove", "Keep")
+taxa_abund_UnRare$AvRelcutoff2 <- ifelse(taxa_abund_UnRare$Taxa_Rel_mean <= 0.0002, "Remove", "Keep")
+taxa_abund_UnRare$AvRelcutoff <- ifelse(taxa_abund_UnRare$Taxa_Rel_mean <= 0.0001, "Remove", "Keep")
+
+# CHECK ratio of kept vs. removed OTUs
+table(taxa_abund_UnRare$Sumcutoff)/(dim(taxa_abund_UnRare)[1]) 
+
+table(taxa_abund_UnRare$AvRelcutoff2)/(dim(taxa_abund_UnRare)[1]) 
+
+table(taxa_abund_UnRare$AvRelcutoff)/(dim(taxa_abund_UnRare)[1]) 
+```
+
+**Average Relative Abundance of each OTU Removed vs. Retained with the Threshold of 0.0001% Mean Relative Abundance**
+```{r}
+taxa_abund_UnRare <- taxa_abund_UnRare[order(taxa_abund_UnRare$Taxa_Rel_mean),]
+taxa_abund_UnRare$Index <- seq(nrow(taxa_abund_UnRare)) 
+
+ggplot(taxa_abund_UnRare,aes(x=Taxa_Rel_mean,y=Index, color = AvRelcutoff)) + 
+  geom_point(alpha=0.55) + xlab("Average relative abundance (%)") + ylab("OTU Average Relative abundance rank") 
+```
+
+```{r, include=FALSE}
+# Extra *Added taxonomy to table of average relative abundances and total read counts and saved table*
+
+taxa_unrel <- as.data.frame(as(tax_table(py_Notrarefy_Rel), "matrix"))
+
+taxa_abund_UnRare2 <- merge(subset(taxa_unrel, select = "Genus"), taxa_abund_UnRare, by="row.names")
+
+## only kept column referring to the cutoff actually used
+taxa_abund_UnRare2$Sumcutoff <- NULL
+taxa_abund_UnRare2$AvRelcutoff2 <- NULL
+
+write.csv(taxa_abund_UnRare2, file="output/Gut_Unrarified_taxa_abundances.csv", quote = FALSE)
+```
+
+### Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less -  remove from the Count dataset (not relative data)
+```{r}
+data0001_Unrarefy = filter_taxa(py_Notrarefy_Rel, function(x) mean(x) > 0.0001, TRUE) 
+ntaxa(data0001_Unrarefy) # number of taxa retained
+
+ASV_list <- get_taxa_unique(data0001_Unrarefy, taxonomic.rank = "ASV")
+
+UnRarefyCount_prune_G <- prune_taxa(ASV_list, py_Notrarefy_G)
+UnRarefyCount_prune_G 
+```
+
+
+### Read Counts After Step 4
+*Also adding read counts to metadata as "readcount_postRareTaxaFilt"*
+```{r, warning=FALSE, message=FALSE}
+sample_data(UnRarefyCount_prune_G)$readcount_postRareTaxaFilt <- sample_sums(UnRarefyCount_prune_G)
+
+# CHECKS
+## Overall summary 
+summary(sample_data(UnRarefyCount_prune_G)$readcount_postRareTaxaFilt)
+
+## Also check read count summary table
+depths_summary4_G <- data_summary_V2(sample_data(UnRarefyCount_prune_G), varname="readcount_postRareTaxaFilt", groupnames=c("SampleType"))
+depths_summary4_G
+```
+
+### Read Count by Sequencing Run
+```{r}
+sdf <- sample_data(UnRarefyCount_prune_G)
+
+depth_PerRun <- data_summary_V2(sdf, varname="readcount_postRareTaxaFilt", groupnames=c("RunID"))
+depth_PerRun
+
+write.csv(depth_PerRun, file="output/Gut_PostSampleAndRareTaxaFilt_Counts.csv", quote=FALSE)
+```
+
+### Final Read Count Assessment
+
+**The percent of average reads per sample retained at each step**
+```{r}
+# percent of total reads retained after Step 1 (removal of unassigned, Eukaryotic reads and chloroplast/mitochondria reads):
+summary(sdf$readcount_bacteria/sdf$readcount1*100) 
+
+# percent of bacterial reads retained after Step 3 (rare taxa filter):
+summary(sdf$readcount_postRareTaxaFilt/sdf$readcount_bacteria*100) 
+  ## median is 100% of samples reads retained - pretty much no data removal
+```
+
+```{r, include=FALSE}
+##Save Pruned/Un-Rarified version
+saveRDS(UnRarefyCount_prune_G, file="final_datasets/UnRarefied_Pruned_Py_gut.rds")
+```
+
+
+# Merge Nasal, Gut and Milk Microbiome Datasets and Make a Rarefied Version of the Data
+
+```{r, include=FALSE}
+## reading in cleaned milk microbiome dataset to merge with nasal & gut (to recreate dataset used, though the milk microbiome isn't really a part of the paper)
+UnRarefyCount_prune_M <- readRDS(file="milk_output/UnRarefied_Pruned_Py")
+
+## Extra - removing old viral data from milk dataset - updated version will be added later with other CHILD metadata 
+sample_data(UnRarefyCount_prune_M)$Virus_Nasal <- NULL
+sample_data(UnRarefyCount_prune_M)$Virus_Nasal2 <- NULL
+sample_data(UnRarefyCount_prune_M)$RE_Virus <- NULL
+sample_data(UnRarefyCount_prune_M)$Any_Virus <- NULL
+```
+
+**Remove Biological controls from nasal data** 
+```{r}
+## these are technical replicates, not part of the study analysis
+UnRarefyCount_pruneT3 <- subset_samples(UnRarefyCount_prune2, SampleType != "BC")
+UnRarefyCount_pruneT3 <- prune_taxa(taxa_sums(UnRarefyCount_pruneT3)>0, UnRarefyCount_pruneT3)
+UnRarefyCount_pruneT3
+```
+
+**Export the data to be merged**
+Nasal data
+```{r}
+N_sample_data <- as(sample_data(UnRarefyCount_pruneT3), "data.frame")
+
+N_taxa_table <- as.data.frame(as(tax_table(UnRarefyCount_pruneT3), "matrix"))
+
+N_f_tab <- as.data.frame(as(otu_table(UnRarefyCount_pruneT3), "matrix"))
+```
+Milk data
+```{r}
+M_sample_data <- as(sample_data(UnRarefyCount_prune_M), "data.frame")
+
+M_taxa_table <- as.data.frame(as(tax_table(UnRarefyCount_prune_M), "matrix"))
+
+M_f_tab <- as.data.frame(as(otu_table(UnRarefyCount_prune_M), "matrix"))
+```
+Gut data
+```{r}
+G_sample_data <- as(sample_data(UnRarefyCount_prune_G), "data.frame")
+
+G_taxa_table <- as.data.frame(as(tax_table(UnRarefyCount_prune_G), "matrix"))
+
+G_f_tab <- as.data.frame(as(otu_table(UnRarefyCount_prune_G), "matrix"))
+```
+
+### Merge milk and nasal taxonomy
+**(1) Check how many ASVs are shared between milk and nasal data and verify that their taxonomy is the same (should be exactly the same)**
+```{r}
+shared_taxa <- intersect(rownames(N_taxa_table), rownames(M_taxa_table))
+length(shared_taxa) # 411 ASVs shared
+
+#CHECK taxonomy of shared ASVs - does it match? 
+milk_taxa_shared <- subset(M_taxa_table, M_taxa_table$ASV %in% shared_taxa)
+nasal_taxa_shared <- subset(N_taxa_table, N_taxa_table$ASV %in% shared_taxa)
+
+## Yes - all are True for matching
+table(milk_taxa_shared[order(milk_taxa_shared$ASV),] == nasal_taxa_shared[order(nasal_taxa_shared$ASV),])
+# IF ASV ID is the same, then Taxonomy is the same. 
+```
+
+**(2) Merge taxonomy tables by union** 
+keep all ASVs present in both tables
+```{r}
+# must remove the shared ASVs from one of the datasets before rbind of datasets [so there are no replicate ASVs in taxa table after rbind]
+M_taxa_table_noshared <- subset(M_taxa_table, M_taxa_table$ASV %ni% shared_taxa)
+
+merged_taxa_table <- rbind(N_taxa_table, M_taxa_table_noshared)
+nrow(merged_taxa_table) == (nrow(N_taxa_table) + nrow(M_taxa_table) - length(shared_taxa))
+# Correct - 6,272 = (2641 + 4042 - 411) 
+```
+
+**(3) Check how many OTUs are shared between milk/nasal and gut data and verify that their taxonomy is the same (should be exactly the same)**
+```{r}
+shared_taxa2 <- intersect(rownames(merged_taxa_table), rownames(G_taxa_table))
+length(shared_taxa2) # 390 ASVs shared
+
+#CHECK taxonomy of shared ASVs - does it match? 
+G_taxa_shared <- subset(G_taxa_table, G_taxa_table$ASV %in% shared_taxa2)
+merged_taxa_shared <- subset(merged_taxa_table, merged_taxa_table$ASV %in% shared_taxa2)
+
+## Yes - all are True for matching
+table(G_taxa_shared[order(G_taxa_shared$ASV),] == merged_taxa_shared[order(merged_taxa_shared$ASV),])
+# IF ASV ID is the same, then Taxonomy is the same. 
+```
+
+**(4) Merge taxonomy tables by union** 
+*keep all OTUs present in both tables*
+```{r}
+# must remove the shared ASVs from ONE of the datasets before rbind of datasets [so there are no replicate ASVs in taxa table after rbind]
+G_taxa_table_noshared <- subset(G_taxa_table, G_taxa_table$ASV %ni% shared_taxa2)
+
+merged_taxa_table2 <- rbind(merged_taxa_table, G_taxa_table_noshared)
+dim(merged_taxa_table2)
+# 7,636 ASVs
+nrow(merged_taxa_table2) == (nrow(merged_taxa_table) + nrow(G_taxa_table) - length(shared_taxa2)) # True, good
+```
+
+
+### Merge feature-tables by union 
+**(1) Merge nasal and milk**
+```{r}
+#smartbind adds in the columns that are only present in one dataset and combines those that are in both - ASVs should be colnames to use this. 
+M_f_tab_t <- as.data.frame(t(M_f_tab))
+M_f_tab_t$Rownames <- rownames(M_f_tab_t) # Adding this additional column since smartbind doesn't maintain rownames
+
+N_f_tab_t <- as.data.frame(t(N_f_tab))
+N_f_tab_t$Rownames <- rownames(N_f_tab_t) # Adding this additional column since smartbind doesn't maintain rownames
+
+##Add total ASVs subtract shared ASVs once 
+merged_f_tab <- smartbind(M_f_tab_t, N_f_tab_t, fill=0)  # IF ASV is absent in other dataset (most often is), will add 0 
+row.names(merged_f_tab) <- merged_f_tab$Rownames
+merged_f_tab$Rownames <- NULL
+dim(merged_f_tab) # taxa are columns
+
+# good, same number of taxa in OTU table as in taxa table 
+ncol(merged_f_tab) == nrow(merged_taxa_table)
+```
+
+**(2) Merge gut with nasal and milk**
+```{r}
+# Repeat above chunk to merge gut otu table with nasal/milk otu table
+G_f_tab_t <- as.data.frame(t(G_f_tab))
+G_f_tab_t$Rownames <- rownames(G_f_tab_t) # Adding this additional column since smartbind doesn't maintain rownames
+
+merged_f_tab$Rownames <- rownames(merged_f_tab) # Adding this additional column since smartbind doesn't maintain rownames
+
+##Add total ASVs subtract shared ASVs once 
+merged_MNG_tab <- smartbind(G_f_tab_t, merged_f_tab, fill=0)  # IF ASV is absent in other dataset (most often is), will add 0 
+row.names(merged_MNG_tab) <- merged_MNG_tab$Rownames
+merged_MNG_tab$Rownames <- NULL
+dim(merged_MNG_tab)
+
+# good, same number of taxa in OTU table as in taxa table
+ncol(merged_MNG_tab) == nrow(merged_taxa_table2)
+
+#MANY 0s are expected - Many ASVs in one Sample type are not present in the other
+
+merged_f_tab_final <- as.matrix(t(merged_MNG_tab)) # taxa by samples again
+```
+
+
+### Merge sample data 
+*Also make sure variable names are the same for milk, nasal and gut datasets before merge and remove those unnecessary columns*
+```{r}
+# start with nasal and milk edits needed to rbind / make columns the same
+
+# Make sample type variable:
+N_sample_data$SampleType <- "Nasal" 
+M_sample_data$SampleType <- "Milk" 
+
+# Also Visit of Milk is always 3 Months, add this variable to milk dataset
+M_sample_data$Visit <- "3 Months"
+
+#Edit RunID titles to be consistent
+colnames(N_sample_data) <- gsub("RunID", "Run", colnames(N_sample_data)) # To be consistent with milk 
+
+## SeqID is equivalent to SampleID in M_sample_data, change the name of SampleID in milk data
+M_sample_data$SeqID <- M_sample_data$SampleID
+
+## A few columns we know are unique to the milk or nasal dataset but want to keep, just add/modify these manually below
+N_sample_data$Batch <- NA
+M_sample_data$Specimen.ID <- NA
+M_sample_data$Name <- NA
+
+### Centre in nasal data should be the same as StudyCenter in metadata, will be added for milk later, making NA for now in milk
+M_sample_data$Centre <- NA
+
+
+# Remove the preprocessing/quality control variables unique to each sample type / not needed for downstream analysis
+Vars_rm_M <- c("Kit_Type", "Plate", "readcount1", "readcount2", "LibrarySize_after", "LibrarySize_4", "LibrarySize_5", "is.neg", "DepthIndex", "Included_in_first_batch_analysis", "DNA_level", "DNA_level2", "Smple_type", "Smple_type2", "BarcodeSequence", "DNA_concent_ng_ul", "SampleID")
+
+Vars_rm_N <- c("Controls_ID2", "readcount1", "readcount_bacteria", "readcount_postDecon", "readcount_postRareTaxaFilt", "is.Extneg", "is.PCRneg")
+
+M_sample_data_sub <- subset(M_sample_data, select = setdiff(colnames(M_sample_data), Vars_rm_M))
+
+N_sample_data_sub <- subset(N_sample_data, select = setdiff(colnames(N_sample_data), Vars_rm_N))
+
+# double check differences, want columns to be the same 
+setdiff(colnames(N_sample_data_sub), colnames(M_sample_data_sub)) # variables in nasal data not in milk data - good there are none
+setdiff(colnames(M_sample_data_sub), colnames(N_sample_data_sub)) # variables in milk data not in nasal data - good there are none
+```
+
+```{r}
+# Now make sure gut dataset matches nasal and milk column names
+colnames(G_sample_data) <- gsub("RunID", "Run", colnames(G_sample_data)) # To be consistent with milk/nasal 
+
+G_sample_data$Specimen.ID  <- G_sample_data$BarCode
+G_sample_data$SeqID <-  G_sample_data$SampleID
+
+## A few columns we know are unique to the milk or nasal dataset but want to keep for gut, just add/modify these manually below
+G_sample_data$Batch <- NA
+G_sample_data$Centre <- NA
+G_sample_data$Name <- NA
+
+## Remove the preprocessing/quality control variables unique to gut / not needed for downstream analysis
+Vars_rm_G <- c("BarCode", "SampleID", "readcount1", "readcount_bacteria", "readcount_postRareTaxaFilt")
+
+G_sample_data_sub <- subset(G_sample_data, select = setdiff(colnames(G_sample_data), Vars_rm_G))
+
+# double check differences, want columns to be the same 
+setdiff(colnames(G_sample_data_sub), colnames(N_sample_data_sub)) 
+setdiff(colnames(N_sample_data_sub), colnames(G_sample_data_sub)) 
+## Column names now have no differences
+```
+
+**Merge nasal, gut and milk sample data**
+```{r}
+# Can use rbind to merge all
+NMG_sample_data <- rbind(M_sample_data_sub, N_sample_data_sub, G_sample_data_sub) 
+dim(NMG_sample_data)
+```
+
+### Re-form phyloseq object with milk and nasal data combined
+```{r}
+OTU = otu_table(merged_f_tab_final, taxa_are_rows=TRUE)
+TAX = tax_table(as.matrix(merged_taxa_table2))
+sampledata = sample_data(NMG_sample_data)
+
+physeq = phyloseq(OTU, TAX, sampledata)
+physeq 
+
+table(sample_data(physeq)$SampleType, sample_data(physeq)$Visit)
+```
+
+```{r}
+## save sample data Prior to adding subject metadata/etc., this is imported into "01_KF_clean_CHILD-Data_Nasal-250321.R" in metadata cleaning to link with subject metadata and milk composition data for these specific participants
+saveRDS(as(sample_data(physeq), "data.frame"), file="final_datasets/nasal_milk_gut_sample_data")
+```
+
+
+# ADDED SUBJECT METADATA AND MILK COMPOSITION VARIABLES
+
+**Imported and add the checked participant metadata**
+*The subject metadata and milk composition data was added to the sample data "nasal_milk_gut_sample_data" / the physeq sample_data
+```{r}
+## Note to self - originally from following directory: "CHILD_Nasal_Milk_Project/Analyses/PreProcessing/Microb_and_Metadata_QC_cleaning_031220/Metadata Cleaning/CHILD_Data/3_Output_121020/"
+sdf1 <- readRDS("metadata_input/Nasal_Milk_Gut_subset_Cleaned_KF_Sample_data-20July2021")
+nrow(sdf1) == nsamples(physeq)  # 7691 samples - same as phyloseq object
+```
+
+**Made a few different versions of some variables**
+```{r, include=FALSE}
+## Make sample specific (longitudinal) versions of some important variables, age and season of sampling: 
+sdf1$Season_sampling <- ifelse(as.character(sdf1$Visit) == "3 Months", sdf1$Season_3m, ifelse(as.character(sdf1$Visit) == "1 Year", sdf1$Season_1y, ifelse(as.character(sdf1$Visit) == "5 Years Clinic", sdf1$Season_5y, NA)))
+
+## Must make sure season of milk sample collection is used for milk instead for milk samples - should not change much
+sdf1$Season_sampling <- ifelse(as.character(sdf1$SampleType) == "Milk", sdf1$MS_Season_3m, sdf1$Season_sampling)
+
+sdf1$Age_sampling <- ifelse(as.character(sdf1$Visit) == "3 Months", sdf1$age_3m_months, ifelse(as.character(sdf1$Visit) == "1 Year", sdf1$age_1y_months, ifelse(as.character(sdf1$Visit) == "5 Years Clinic", sdf1$age_5y_months, ifelse(as.character(sdf1$Visit) == "3 Years", sdf1$age_3y_months, NA))))
+
+sdf1$Age_sampling <- ifelse(as.character(sdf1$SampleType) == "Milk", sdf1$exact_age_ms_months, sdf1$Age_sampling) # again should change hardly anything as most nasal and milk samples should be taken at the same time
+
+# simplify visit names
+sdf1$Visit <- gsub(" Clinic$", "", sdf1$Visit)
+sdf1$Visit <- factor(sdf1$Visit, levels = c("3 Months", "1 Year", "3 Years", "5 Years"))
+
+# Previously made some additional derivative variables but did not include these for now - too complicated for what they are worth, probably won't use them - refer to old code and make at a later date if ever: RE_Virus_3m, RE_Virus_1y,  Any_Virus_Any, RE_Virus_Any, Healthy_inf1y, Healthy_vTrj2, Healthy_Asthma, etc. (combinations of variables)
+```
+
+### Re-save the sample data the phyloseq object
+```{r}
+# Replace phyloseq object sample data with this updated version
+row.names(sdf1) <- sdf1$SeqID
+sdf_py1 <- sample_data(sdf1)
+sample_data(physeq) <- sdf_py1
+physeq
+```
+
+
+# Curate Taxonomy Table and Added Unique ASV Taxonomic Identifiers
+Added a consistent name for unclassified taxa and avoid propagating higher-level names down - using the term "Unclassified" instead.  
+Make some taxonomic names clearer, such as those that are just numbers (pre-pended the higher-level taxonomic name to these)
+*Note that Species level is not to be trusted as much for 16S rRNA gene data, this level was not curated, if there are ever discrepancies between Species and Genus level assignments, trust the genus level more*
+```{r}
+py_taxa_ns <- as.data.frame(as(tax_table(physeq), "matrix")) 
+
+# Use the more common names for Actinobacteriota (Actinobacteria) and Bacteroidota (Bacteroidetes)
+py_taxa_ns$Phylum <- py_taxa_ns$Phylum %>% ifelse(. == "Actinobacteriota", "Actinobacteria", .) %>% ifelse(. == "Bacteroidota", "Bacteroidetes", .)
+
+# Check for modification of Phylum level first 
+
+## WPS-2 is a phylum always unclassified in all levels under it, so make it Unclassified in all levels under it
+py_taxa_ns$Class <- ifelse(py_taxa_ns$Class == "WPS-2", "Unclassified WPS-2", py_taxa_ns$Class)
+py_taxa_ns$Order <- ifelse(py_taxa_ns$Order == "WPS-2", "Unclassified WPS-2", py_taxa_ns$Order)
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "WPS-2", "Unclassified WPS-2", py_taxa_ns$Family)
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "WPS-2", "Unclassified WPS-2", py_taxa_ns$Genus)
+
+
+## Propagation of same taxonomic name across lower levels: (e.g. if a lower level name hasn't been decided yet), IF two levels in a row equal each other, then let those downstream levels be "uncultured" (i.e. the other common way SILVA defines unclassified taxonomic levels, other than propagating higher levels down). 
+
+# Before assuming that the same taxonomic name in a higher and lower level means that ALL lower levels can be called "unclassified", checking if lower levels are propagated if two higher levels are. There are Rare occasions where a family and order have the same name but not genus level.
+check_df <- py_taxa_ns
+check_df$Order_Fam <- eval(check_df$Order == check_df$Family) # check those where order is propagated to family level
+check_df_OrderPropigated <- subset(check_df, Order_Fam == TRUE)
+
+### Assessed this dataset. Modify the clear Exceptions found where Order equals Family level but Family does not equal Genus level:
+####    KF308333.1.1344 (Enterobacterales in Family (which is really an Order name), Gibbsiella in Genus); NCBI indicates that this bacterium is in the family Yersiniaceae (https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=929813) - place this in hard brackets beside original SILVA name so that Order and Family level are no longer the same 
+py_taxa_ns$Family <- ifelse(row.names(py_taxa_ns)=="KF308333.1.1344", "Enterobacterales [Yersiniaceae]", py_taxa_ns$Family)
+
+####    LT161891.1.1529 (Oscillospirales in Family, Hydrogenoanaerobacterium in Genus) - NCBI indicates that this bacterium is in the Family Oscillospiraceae (https://www.gbif.org/species/102697834) - place this in hard brackets beside the original SILVA name 
+py_taxa_ns$Family <- ifelse(row.names(py_taxa_ns)=="LT161891.1.1529", "Oscillospirales [Oscillospiraceae]", py_taxa_ns$Family)
+
+#### All "Peptostreptococcales-Tissierellales" at Order level also have the same name at Family level despite not being unclassified (append term Family to family level name so they are no longer the same):
+py_taxa_ns$Family <- gsub("^Peptostreptococcales-Tissierellales$", "Peptostreptococcales-Tissierellales Family", py_taxa_ns$Family) 
+
+
+## Other Modifications for taxonomic names that propagate down  
+### Once all are classified as "uncultured" at lower level if they propigate down - it will be much faster to specify as unclassified [higher taxonomy name] in code later.
+
+#### IF Order level propagates to Family level  = "uncultured" for Family level
+py_taxa_ns$Family <- ifelse(eval(py_taxa_ns$Order == py_taxa_ns$Family) == TRUE, "uncultured", py_taxa_ns$Family)
+
+#### For taxa where Order name OR Family name propagates down to Genus, make Genus 'uncultured' 
+py_taxa_ns$Genus <- ifelse(eval(py_taxa_ns$Order == py_taxa_ns$Genus) == TRUE | eval(py_taxa_ns$Family == py_taxa_ns$Genus) == TRUE, "uncultured", py_taxa_ns$Genus) # 861
+#### IF Family level propagates to Genus level = "uncultured" for Genus level
+
+
+# Now moving from highest to lowest taxonomic level for other modifications (e.g. making unusual taxonomic names easier to understand by adding the higher-level taxonomic name to the end)
+
+# Class
+
+## Making weird class names clearer by adding the higher level taxonomy in addition to class
+Class_AlphaNum <- c("TK10", "OM190", "AT-s3-28", "BRH-c20a", "Gitt-GS-136", "TTA-B61", "KD4-96", "bacteriap25")
+
+py_taxa_ns$Class <- ifelse(py_taxa_ns$Class %in% Class_AlphaNum, paste(py_taxa_ns$Phylum, py_taxa_ns$Class), py_taxa_ns$Class)
+
+### extra edit
+py_taxa_ns$Class <- gsub("S0134_terrestrial_group", "Gemmatimonadota S0134", py_taxa_ns$Class) # Phylum name - Class ID (without terrestiral_group)
+
+## Changing the way uncultured/unclassified taxa are named - IF uncultured, make Unclassified [higher level name]
+py_taxa_ns$Class <- ifelse(py_taxa_ns$Class == "uncultured", paste("Unclassified", py_taxa_ns$Phylum), py_taxa_ns$Class)
+
+
+# Order Level 
+
+## Making some names clearer
+Order_AlphaNum <- c("1-20", "211ds20", "0319-6G20", "WCHB1-41", "C0119", "CCD24", "Elev-16S-573", "DS-100", "IMCC26256", "JG36-GS-52", "Lineage_IV", "OPB56", "PLTA13", "S085", "OPB41", "LD1-PB3", "OM190", "RF39", "SBR1031", "Subgroup_2", "Subgroup_7")
+
+py_taxa_ns$Order <- ifelse(py_taxa_ns$Order %in% Order_AlphaNum, paste(py_taxa_ns$Class, py_taxa_ns$Order), py_taxa_ns$Order) # 211ds20
+
+### Extra edits
+py_taxa_ns$Order <- ifelse(py_taxa_ns$Order == "Gammaproteobacteria_Incertae_Sedis", "Unclassified Gammaproteobacteria", py_taxa_ns$Order) # Checked, all unclassified after this name / propigated down - so just use Unclassified instead of Incertae Sedis to be consistent - they essentially mean the same thing
+py_taxa_ns$Order <- ifelse(py_taxa_ns$Order == "Oxyphotobacteria_Incertae_Sedis", "Unclassified Oxyphotobacteria", py_taxa_ns$Order) # same as above
+
+
+## Changing the way uncultured/unclassified taxa are named - IF uncultured or propigate down, make Unclassified [higher level name]
+unclass_Order <- c("uncultured", "OM190", "AT-s3-28", "KD4-96", "TTA-B61", "Gitt-GS-136", "S0134_terrestrial_group") # Other than "uncultured", the names assumed to be unclassified are those that were propagated down from Class level to lower levels (double checked them before changing; Many of these have alpha-numeric names at class level / in Class_AlphaNum)
+
+py_taxa_ns$Order <- ifelse(py_taxa_ns$Order %in% unclass_Order, paste("Unclassified", py_taxa_ns$Class), py_taxa_ns$Order) 
+
+# Correction after the fact - Some were already called unclassified at Class level (like the WPS-2 already renamed) so need to add this correction
+py_taxa_ns$Order <- gsub("^Unclassified Unclassified", "Unclassified", py_taxa_ns$Order) 
+
+
+# Family level
+
+## Making some names clearer
+Family_AlphaNum <- c("67-14", "LWQ8", "A0839", "DEV007", "AKIW781", "BIrii41", "D05-2", "F082", "JG30-KF-CM45", "MgMjR-022", "p-251-o5", "P3OB-42", "P5D1-392", "SC-I-84", "SS1-B-06-26", "UCG-010", "UCG-011", "WX65")
+
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family %in% Family_AlphaNum, paste(py_taxa_ns$Order, py_taxa_ns$Family), py_taxa_ns$Family)
+
+### Extra edits
+py_taxa_ns$Family <- py_taxa_ns$Family %>% ifelse(. == "Bacteroidales_RF16_group", "Bacteroidales RF16", .) %>% 
+  ifelse(. == "Clostridiales_vadinBB60_group", "Clostridiales vadinBB60", .) %>% ifelse(. == "p-2534-18B5_gut_group", "Bacteroidales p-2534-18B5", .) %>% 
+  ifelse(. == "WD2101_soil_group", "Tepidisphaerales WD2101", .) %>% ifelse(. == "Chlorobi_bacterium_canine_oral_taxon_046", "Chlorobi bacterium 046", .) %>%
+  gsub("Clostridiaceae_\\d", "Clostridiaceae", .) %>% gsub("Alcanivoracaceae\\d", "Alcanivoracaceae", .)
+
+## Changing the way uncultured/unclassified taxa are named
+unclass_Family <- c("uncultured", "uncultured_bacterium", "uncultured_actinobacterium", "uncultured_rumen_bacterium", "uncultured_Rhodospirillaceae_bacterium", "Unknown_Family", "metagenome", "A4b", "NS9_marine_group", "env.OPS_17") # Other than "uncultured" and related synonyms, the names assumed to be unclassified are those that were propagated down from Class level to lower levels 
+
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family %in% unclass_Family, paste("Unclassified", py_taxa_ns$Order), py_taxa_ns$Family) 
+
+# Correction after the fact - Some were already called unclassified at Class level (like the WPS-2 already renamed) so need to add this correction
+py_taxa_ns$Family <- gsub("^Unclassified Unclassified", "Unclassified", py_taxa_ns$Family) 
+
+### Additional Families that must have Order name beforehand in order to make sense ##note that not all of these may be present in a dataset but it doesn't matter if the code is run anyway - even if they aren't present
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_X" & py_taxa_ns$Order == "Bacillales", "Bacillales Family X", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_XI" & py_taxa_ns$Order == "Clostridiales", "Clostridiales Family XI", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_XI" & py_taxa_ns$Order == "Bacillales", "Bacillales Family XI", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_XII" & py_taxa_ns$Order == "Bacillales", "Bacillales Family XII", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_XIII" & py_taxa_ns$Order == "Clostridiales", "Clostridiales Family XIII", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_XVII" & py_taxa_ns$Order == "Clostridiales", "Clostridiales Family XVII", py_taxa_ns$Family) 
+py_taxa_ns$Family <- ifelse(py_taxa_ns$Family == "Family_III" & py_taxa_ns$Order == "Thermoanaerobacterales", "Thermoanaerobacterales Family III", py_taxa_ns$Family) 
+
+
+# Genus level 
+
+## Making some names clearer
+Genus_AlphaNum <- c("1174-901-12", "B48", "A2", "OLB12", "DNF00809", "CAG-352", "CAG-873", "DSSD61", "Ellin6055", "Ellin517", "DSSF69", "F0058", "F0332", "JGI_0001001-H03", "MN_122.2a", "MND1", "OM27_clade", "RB41", "S31", "SH-PL14", "SN8", "Family_XIII_AD3011", "Family_XIII_UCG-001", "5-A14a", "Subgroup_10", "P3OB-42", "UCG-009", "UCG-005", "UCG-003", "UCG-002", "PMMR1", "NK4A214_group", "SWB02", "W5053", "YC-ZSS-LKJ147")
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus %in% Genus_AlphaNum, paste(py_taxa_ns$Family, py_taxa_ns$Genus), py_taxa_ns$Genus) 
+
+### Remove the underscores now for Genus level, look better as spaces for plots, also - Remove the group or gut at the end of some names (long/unnecessary additions)
+py_taxa_ns$Genus <- py_taxa_ns$Genus %>% gsub("_", " ", .) %>%  gsub(" group$", " ", .) %>% gsub(" gut$", " ", .) 
+
+### Extra edits
+#### 1.  "Escherichia-Shigella" and "Esherichia" ASVs are both "Escherichia coli" at Species level - anyway it is known that Escherichia and Shigella cannot be distinguished with 16S, anyway, so ok to group both as "Escherichia" at genus level for consistency. 2. Modification for Paraburkholderia tropica (a species that is incorrectly specified at Genus level)
+py_taxa_ns$Genus <- py_taxa_ns$Genus %>% ifelse(. == "Escherichia-Shigella", "Escherichia", .) %>% 
+                    ifelse(. == "Paraburkholderia tropica", "Paraburkholderia", .)
+
+## move "Paraburkholderia tropica" to species level for this (only one in our dataset). Not using species level anyway though so doesn't really matter
+py_taxa_ns$Species <- ifelse(py_taxa_ns$Genus == "Paraburkholderia", "Paraburkholderia tropica", py_taxa_ns$Species)
+
+
+# Taxa that have numbers at the end of them - to group into the same genus for now (may or may not be in the dataset)
+py_taxa_ns$Genus <- py_taxa_ns$Genus %>% gsub("Clostridium sensu stricto \\d", "Clostridium sensu stricto", .) %>% 
+  gsub("Clostridium sensu stricto\\d", "Clostridium sensu stricto", .) %>% gsub("Coprococcus \\d", "Coprococcus", .) %>% 
+  gsub("Butyrivibrio \\d", "Butyrivibrio", .) %>% gsub("Ruminococcus \\d", "Ruminococcus", .) %>%
+  gsub("Corynebacterium \\d", "Corynebacterium", .) %>% gsub("Prevotella \\d", "Prevotella", .) %>% 
+  gsub("Tyzzerella \\d", "Tyzzerella", .) %>% gsub("Treponema \\d", "Treponema", .) %>% 
+  gsub("Selenomonas \\d", "Selenomonas", .) %>% gsub("Ruminiclostridium \\d", "Ruminiclostridium", .) %>% 
+  gsub("Rahnella\\d", "Rahnella", .)
+
+
+### Taxa called "uncultured" at Genus level that are NOT to be specified as Unclassified at the genus level (just at Species level):"uncultured Corynebacterium sp.", uncultured Paludibacter sp., uncultured Planctomyces sp., uncultured Thermomicrobium sp.
+py_taxa_ns$Genus <- py_taxa_ns$Genus %>% ifelse(. == "uncultured Corynebacterium sp.", "Corynebacterium", .) %>%
+  ifelse(. == "uncultured Planctomyces sp.", "Planctomyces", .) %>% ifelse(. == "uncultured Thermomicrobium sp.", "Thermomicrobium", .)
+
+
+
+##### Common Genus level SILVA IDs that we can consider unclassified or not really useful are modified below - HOWEVER - using the updated SIVA 138 database, the only name used for uncultured/unclassified taxa is "uncultured" for the most part - but keeping the whole list anyway just in case - it does not hurt since IF anything has these names it is unclassified/uncultured.
+
+unclass_Genus <- c("uncultured", "uncultured bacterium", "uncultured organism", "uncultured actinobacterium", "uncultured Bacteroidales bacterium", "uncultured Candidatus Saccharibacteria bacterium", "uncultured Chloroflexi bacterium", "uncultured rumen bacterium", "possible genus 04", "alphaI cluster", "bacterium A52C2", "bacterium YC-ZSS-LKJ66", "Bacteroidia bacterium canine oral taxon 301", "metagenome", "OLB13", "uncultured Acetobacteraceae bacterium", "uncultured archaeon", "uncultured crenarchaeote", "uncultured cyanobacterium", "uncultured delta proteobacterium", "uncultured endolithic bacterium", "uncultured gamma proteobacterium", "uncultured Gemmatimonadetes bacterium", "uncultured Verrucomicrobia bacterium", "uncultured soil bacterium", "uncultured proteobacterium", "uncultured Porphyromonadaceae bacterium", "uncultured Thermomicrobia bacterium", "Incertae Sedis")
+
+py_taxa_ns$Genus <- ifelse(is.na(py_taxa_ns$Genus) | py_taxa_ns$Genus %in% unclass_Genus, paste("Unclassified", py_taxa_ns$Family), py_taxa_ns$Genus)
+
+# Correction after the fact - Some were already called unclassified at Class level (like the WPS-2 already renamed) so need to add this correction
+py_taxa_ns$Genus <- gsub("^Unclassified Unclassified", "Unclassified", py_taxa_ns$Genus) 
+
+
+# Genus with name that's too long - Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium -These are all just similar Genera grouped together BUT - want to split this up so it doesn't  make this "Genera" look really abundant when it is really just more general than other Genera.  Check the species level to determine how to un-group where possible
+
+####  Most are Rhizobium (check species level for differentiation)
+Rhizobium_sp <- c("Rhizobium_sp._351BAU", "Rhizobium_sp._P-8", "Rhizobium_subbaraonis", "Rhizobium_sp.", "Rhizobium_sp._KNUC359", "Rhizobium_rhizogenes", "Rhizobium_sp._NCCP-1186", "uncultured_Rhizobium_sp.", "Rhizobium_sp._MBB1", "Rhizobium_sp._R2-172", "Rhizobium_sp._BtR 17" , "Rhizobium_sp._ZQM-64", "Rhizobium_sp._T1-17", "Rhizobium_sp._gx-46", "Rhizobium_sp._P-26")
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" &
+                             (py_taxa_ns$Species %in% Rhizobium_sp), "Rhizobium", py_taxa_ns$Genus)
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" & 
+                             (py_taxa_ns$Species == "Allorhizobium_vitis"), "Allorhizobium", py_taxa_ns$Genus)
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" & 
+                             (py_taxa_ns$Species == "Neorhizobium_alkalisoli"), "Neorhizobium", py_taxa_ns$Genus)
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" & 
+                             (py_taxa_ns$Species == "Pararhizobium_giardinii"), "Pararhizobium", py_taxa_ns$Genus)
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" & 
+                             (py_taxa_ns$Species == "Agrobacterium_radiobacter" | py_taxa_ns$Species =="Agrobacterium_sp."), "Agrobacterium", py_taxa_ns$Genus)
+
+### Some are unclassified, just show as "Unclassified Rhizobiaceae" for these
+Unclass_RhizAl <- c("uncultured_soil", "uncultured_bacterium", "uncultured_alpha_proteobacterium", "Rhizobiales_bacterium", "uncultured_Rhizobium", "metagenome")
+
+py_taxa_ns$Genus <- ifelse(py_taxa_ns$Genus == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium" & 
+                             (py_taxa_ns$Species %in% Unclass_RhizAl), "Unclassified Rhizobiaceae", py_taxa_ns$Genus)
+```
+
+```{r, include=FALSE}
+## How many genera are unclassified/uncultured at genus level or higher?
+py_taxa_check <- py_taxa_ns[grepl("Unclassified",py_taxa_ns$Genus),]
+dim(py_taxa_check) # 894/7636 (11.7% unclassified to genus level) - I think majority of these are rare. This is a similar percent compared to GreenGenes
+```
+
+**Add additional column for unique taxonomic identifiers for each OTU (e.g. some OTUs have the same taxonomy, and numbers to the end of names to make unique)**
+*Also replace row names of taxonomy table and column names of OTU table with this unique taxonomic identifier (rather than using the OTU ID which will just be saved as another column at the end of the taxonomy)*
+```{r, include=FALSE}
+py_taxa_ns$ASV_taxonomy <- py_taxa_ns$Species
+
+# unidentified, unidentified_marine and anything with the term "uncultured", then paste("Unclassified", "Genus"), use gsub, it's much quicker 
+
+##  1. gsub to make all uncultured species a consistent name (NA) 
+py_taxa_ns$ASV_taxonomy <- gsub('uncultured_.*', NA, py_taxa_ns$ASV_taxonomy) 
+
+## 2. ifelse function to replace with Genus level taxonomy
+py_taxa_ns$ASV_taxonomy <- ifelse(is.na(py_taxa_ns$ASV_taxonomy) | py_taxa_ns$ASV_taxonomy == "unidentified" | py_taxa_ns$ASV_taxonomy == "unidentified_marine", paste(py_taxa_ns$Genus, "sp."), py_taxa_ns$ASV_taxonomy)
+
+# Removed underscores, space instead
+py_taxa_ns$ASV_taxonomy <- gsub('_', " ", py_taxa_ns$ASV_taxonomy)
+
+# make unique names
+py_taxa_ns$ASV_taxonomy <- make.unique(py_taxa_ns$ASV_taxonomy, sep=" ")
+
+
+# Save unique names as taxonomy table rownames and otu table column names
+row.names(py_taxa_ns) <- py_taxa_ns$ASV_taxonomy
+
+
+# replace OTUIDs in otu table with these same taxonomic IDs 
+otu_tab <- as(otu_table(physeq), "matrix")
+## must first check that taxonomy and otu tables are in the SAME order before replacing!
+identical(rownames(otu_tab), py_taxa_ns$ASV)
+row.names(otu_tab) <- py_taxa_ns$ASV_taxonomy
+```
+
+```{r, include=FALSE}
+# Extra - **Added additional column for LefSe to taxonomy and re-save modified taxonomy and otu table to a phyloseq object**
+# Add another column with taxonomy in LefSe format - only to Genus level 
+py_taxa_ns$LefSe_Taxonomy_toGenus <- paste(py_taxa_ns$Phylum, py_taxa_ns$Class, py_taxa_ns$Order, py_taxa_ns$Family, py_taxa_ns$Genus, sep = "|")
+```
+
+**Re-make phyloseq objects modified taxonomy and otu table**
+```{r}
+sdf <- as(sample_data(physeq), "data.frame") # first exporting same sample data to add to new py
+
+OTU = otu_table(as.matrix(otu_tab), taxa_are_rows=TRUE)
+TAX = tax_table(as.matrix(py_taxa_ns))
+sampledata = sample_data(sdf)
+
+physeq = phyloseq(OTU, TAX, sampledata)
+physeq # same as original physeq but with taxonomic names/IDs modified
+```
+
+
+# Make Rarefied Version and Calculate Alpha-Diversity 
+
+## Rarefied to about 8000 reads/sample (minimum sample depth, 8005 after removing rare taxa)
+```{r}
+set.seed(59145) 
+physeq_rarif <- rarefy_even_depth(physeq) 
+physeq_rarif 
+
+summary(sample_sums(physeq_rarif))
+```
+
+## Alpha diversity calculated from rarified dataset
+```{r}
+set.seed(60145)
+alpha_data = estimate_richness(physeq_rarif, measures=c("Observed", "InvSimpson", "Shannon"))
+alpha_data <- as.data.frame(alpha_data)
+row.names(alpha_data) <- gsub("^X", "", row.names(alpha_data))
+```
+
+**Saved alpha-div to the rarefied and non-rarefied phyloseq sample data**
+```{r}
+gut_rarefy_data <- as(sample_data(physeq_rarif), "data.frame")
+
+# add alpha-div to sample data
+sdf <- merge(alpha_data, gut_rarefy_data, by = "row.names") 
+row.names(sdf) <- sdf$Row.names
+sdf$Row.names <- NULL
+
+# Save to both rarefied and non-rarefied phyloseq objects for convenience (all have the same sample data anyway)
+sdf_py <- sample_data(sdf)
+sample_data(physeq_rarif) <- sdf_py
+physeq_rarif
+
+sample_data(physeq) <- sdf_py
+physeq
+```
+
+# Saved datasets
+```{r}
+saveRDS(physeq, file="final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds")
+#physeq <- readRDS(file="final_milk_nasal_gut/02_UnRarefied_Merged_Milk_Nasal_042021")
+
+sdf <- as(sample_data(physeq), "data.frame")
+# Save sample metadata separately too
+write.csv(sdf, file="final_datasets/Milk_Nasal_Gut_merged_sample_data.csv")
+
+saveRDS(physeq_rarif, file="final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds")
+```
+
+
+

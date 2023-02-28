@@ -1,0 +1,337 @@
+---
+title: "High prediction accuracy for asthma at 3 years based on nasal and gut microbiome colonization patterns and human milk components (Figure 5)"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setup 
+
+```{r, warning=FALSE, message=FALSE}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(ggplot2); packageVersion('ggplot2')
+library(cowplot); packageVersion('cowplot')
+library(vegan); packageVersion('vegan')
+library(tidyr); packageVersion('tidyr')
+library(reshape2); packageVersion('reshape2')
+library(dplyr); packageVersion('dplyr')  
+library(lmPerm); packageVersion('lmPerm')
+library(UpSetR); packageVersion('UpSetR')
+library(ComplexHeatmap); packageVersion('ComplexHeatmap')
+library(circlize); packageVersion('circlize')
+library(gbm); library('MASS')
+library(pROC); library('plotROC')
+source("Preprocessing/Functions.R")
+```
+
+### Nasal Microbiota colonization patterns
+```{r}
+Nasal_df <- read.csv("Nasal_DivChange_ColPat_N1545_Wide_Summarized.csv", row.names = 1)
+```
+
+#ML predictive model - nasal
+```{r}
+phenotype_labels <- c()
+
+for(i in 1:length(Nasal_df$asthma_3y)){
+  
+  if(is.na(Nasal_df$asthma_3y[i]) == "TRUE")
+    phenotype_labels[i] = NA
+  else{
+    
+    if(Nasal_df$asthma_3y[i] == "No")
+      phenotype_labels[i] = 0
+    if(Nasal_df$asthma_3y[i] == "Probable")
+      phenotype_labels[i] = 1
+    if(Nasal_df$asthma_3y[i] == "Possible")
+      phenotype_labels[i] = 0
+  }
+}
+
+wilx_p_val <- c()
+
+for(i in 1:dim(Nasal_df)[2]){
+  
+  if( sum(na.omit(as.numeric(Nasal_df[which(phenotype_labels == 1), i]))) != 0) {
+    
+    tmp_wilx <- wilcox.test(as.numeric(Nasal_df[which(phenotype_labels == 1), i]), 
+                            as.numeric(Nasal_df[which(phenotype_labels == 0), i]))
+    wilx_p_val[i] <- tmp_wilx$p.value
+    
+  }
+}
+
+
+feature_ids <- which(wilx_p_val <= 0.05)
+
+features_to_remove<- which(colnames(Nasal_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
+ "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
+ "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
+  
+
+if(length(features_to_remove) > 0)
+  feature_ids_2 <- feature_ids[-features_to_remove]
+if(length(features_to_remove) == 0)
+  feature_ids_2 <- feature_ids
+
+View(data.frame(c(1:length(feature_ids_2)), colnames(Nasal_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
+ids_to_remove <- which(is.na(phenotype_labels))
+
+#train-test split
+train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
+table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
+
+#gbm
+Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
+                 ,data = Nasal_df[-ids_to_remove,feature_ids_2][train_samples,],
+                 distribution = "adaboost",n.trees = 10000,
+                 shrinkage = 0.01, interaction.depth = 4)
+Boston.boost
+
+View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
+Variable_Importance <- summary(Boston.boost)
+write.csv(Variable_Importance, "Variable_Importance_Nasal_trajectories.csv")
+#Prediction on Test Set
+##We will compute the Test Error as a function of number of Trees
+n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
+#Generating a Prediction matrix for each Tree
+predmatrix<-predict(Boston.boost,Nasal_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
+test.roc <- c()
+
+for(k in 1:dim(predmatrix)[2]){
+
+  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
+                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
+  test.roc[k] = tmp_roc$auc
+
+}
+boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
+        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
+
+#Calculating The Mean squared Test Error
+#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
+#Plotting the test error vs number of trees
+plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
+which(test.roc == max(test.roc))
+k = which(test.roc == max(test.roc))
+roc_curves_nasal_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
+colnames(roc_curves_nasal_microbes) <- c("True","Predicted")
+auc(response = roc_curves_nasal_microbes$True, predictor = roc_curves_nasal_microbes$Predicted) 
+write.csv(roc_curves_nasal_microbes, file = "roc_curves_Nasal_trajectories.csv")
+
+Importance_Nasal <- read.csv(file="Variable_Importance_Nasal_trajectories.csv", 
+                             row.names = 1)
+colnames(Importance_Nasal) <- c("var", "Importance")
+
+
+Importance_Nasal_sub <- subset(Importance_Nasal, Importance > 0.1) # only care about most important microbes right?
+Importance_Nasal_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Nasal_sub$var)
+Importance_Nasal_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Nasal_sub$var)
+
+Importance_Nasal_sub2 <- Importance_Nasal_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
+
+ids <- unique(Importance_Nasal_sub2$'Log2change')
+
+Importance_Nasal_sub2_new <- Importance_Nasal_sub2[Importance_Nasal_sub2$'Log2change' == ids[1],]
+
+for(i in 2:length(ids)){
+  
+  tmp = Importance_Nasal_sub2[Importance_Nasal_sub2$'Log2change' == ids[i],]
+  Importance_Nasal_sub2_new <- rbind(Importance_Nasal_sub2_new, tmp[1,])
+}
+
+Importance_Nasal_sub2 <- Importance_Nasal_sub2_new
+df.pa.nasal.C1_sub <- subset(df.pa.nasal.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
+df.pa.nasal.C1_sub$OTU <- row.names(df.pa.nasal.C1_sub)
+
+Importance_Nasal_sub2$OTU <- Importance_Nasal_sub2$`Log2change`
+Importance_Nasal_sub3 <- left_join(Importance_Nasal_sub2, df.pa.nasal.C1_sub, by="OTU")
+rownames(Importance_Nasal_sub3) <- rownames(Importance_Nasal_sub2)
+cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
+
+Importance_Nasal_sub3 <- Importance_Nasal_sub3[order(-Importance_Nasal_sub3$Importance),]
+Importance_Nasal_sub3$taxonomy.Family[is.na(Importance_Nasal_sub3$taxonomy.Family)] <- "_milk"
+Importance_Nasal_sub3$taxonomy.Phylum[is.na(Importance_Nasal_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
+Importance_Nasal_sub3$prevalence[is.na(Importance_Nasal_sub3$prevalence)] <- 10
+Importance_Nasal_sub3 <- head(Importance_Nasal_sub3, 20)
+
+Importance_Nasal_sub3_Nasal <- subset(Importance_Nasal_sub3, Trajectory == "Prevalence Trajectory")
+Combined_importance_Prev <- ggplot(Importance_Nasal_sub3_Nasal,aes(y=reorder(OTU, Importance),x=Importance))+
+  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
+  scale_color_manual(values = cbPalette) + labs(x="Importance")
+
+tiff(file = "Fig_5_N_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
+Combined_importance
+dev.off()
+```
+
+```{r}
+Nasal_ROC_plot <- ggplot() +
+  geom_roc(aes(d = True, m = Predicted, color="1"), roc_curves_Nasal_trajectories_milk_components, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="2"), roc_curves_Nasal_trajectories, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="3"), roc_curves_Nasal_microbes_3_months, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="4"), roc_curves_Nasal_microbes_1_year, n.cuts = 0) +
+  geom_line(aes(x,x), size = 0.2) + theme_bw() + labs(x = "False Positive fraction",
+                                                      y = "True Positive fraction") + theme_bw(base_size=12)
+tiff(file = "Fig_5_N_ROC_plot.tiff", width = 1500, height = 900, units = "px", res = 300) 
+Nasal_ROC_plot
+dev.off()
+```
+
+### Gut Microbiota colonization patterns
+```{r}
+Gut_df <- read.csv("Gut_DivChange_ColPat_G555_Wide_Summarized.csv", row.names = 1)
+```
+
+#ML predictive model - gut
+```{r}
+phenotype_labels <- c()
+
+for(i in 1:length(Gut_df$asthma_3y)){
+  
+  if(is.na(Gut_df$asthma_3y[i]) == "TRUE")
+    phenotype_labels[i] = NA
+  else{
+    
+    if(Gut_df$asthma_3y[i] == "No")
+      phenotype_labels[i] = 0
+    if(Gut_df$asthma_3y[i] == "Probable")
+      phenotype_labels[i] = 1
+    if(Gut_df$asthma_3y[i] == "Possible")
+      phenotype_labels[i] = 0
+  }
+}
+
+wilx_p_val <- c()
+
+for(i in 1:dim(Gut_df)[2]){
+  
+  if( sum(na.omit(as.numeric(Gut_df[which(phenotype_labels == 1), i]))) != 0) {
+    
+    tmp_wilx <- wilcox.test(as.numeric(Gut_df[which(phenotype_labels == 1), i]), 
+                            as.numeric(Gut_df[which(phenotype_labels == 0), i]))
+    wilx_p_val[i] <- tmp_wilx$p.value
+    
+  }
+}
+
+
+feature_ids <- which(wilx_p_val <= 0.05)
+
+features_to_remove<- which(colnames(Gut_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
+ "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
+ "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
+  
+
+if(length(features_to_remove) > 0)
+  feature_ids_2 <- feature_ids[-features_to_remove]
+if(length(features_to_remove) == 0)
+  feature_ids_2 <- feature_ids
+
+View(data.frame(c(1:length(feature_ids_2)), colnames(Gut_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
+ids_to_remove <- which(is.na(phenotype_labels))
+
+#train-test split
+train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
+table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
+
+#gbm
+Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
+                 ,data = Gut_df[-ids_to_remove,feature_ids_2][train_samples,],
+                 distribution = "adaboost",n.trees = 10000,
+                 shrinkage = 0.01, interaction.depth = 4)
+Boston.boost
+
+View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
+Variable_Importance <- summary(Boston.boost)
+write.csv(Variable_Importance, "Variable_Importance_Gut_trajectories.csv")
+#Prediction on Test Set
+##We will compute the Test Error as a function of number of Trees
+n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
+#Generating a Prediction matrix for each Tree
+predmatrix<-predict(Boston.boost,Gut_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
+test.roc <- c()
+
+for(k in 1:dim(predmatrix)[2]){
+
+  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
+                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
+  test.roc[k] = tmp_roc$auc
+
+}
+boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
+        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
+
+#Calculating The Mean squared Test Error
+#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
+#Plotting the test error vs number of trees
+plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
+which(test.roc == max(test.roc))
+k = which(test.roc == max(test.roc))
+roc_curves_gut_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
+colnames(roc_curves_gut_microbes) <- c("True","Predicted")
+auc(response = roc_curves_gut_microbes$True, predictor = roc_curves_gut_microbes$Predicted) 
+write.csv(roc_curves_gut_microbes, file = "roc_curves_Gut_trajectories.csv")
+
+Importance_Gut <- read.csv(file="Variable_Importance_Gut_trajectories.csv", 
+                             row.names = 1)
+colnames(Importance_Gut) <- c("var", "Importance")
+
+
+Importance_Gut_sub <- subset(Importance_Gut, Importance > 0.1) # only care about most important microbes right?
+Importance_Gut_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Gut_sub$var)
+Importance_Gut_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Gut_sub$var)
+
+Importance_Gut_sub2 <- Importance_Gut_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
+
+ids <- unique(Importance_Gut_sub2$'Log2change')
+
+Importance_Gut_sub2_new <- Importance_Gut_sub2[Importance_Gut_sub2$'Log2change' == ids[1],]
+
+for(i in 2:length(ids)){
+  
+  tmp = Importance_Gut_sub2[Importance_Gut_sub2$'Log2change' == ids[i],]
+  Importance_Gut_sub2_new <- rbind(Importance_Gut_sub2_new, tmp[1,])
+}
+
+Importance_Gut_sub2 <- Importance_Gut_sub2_new
+df.pa.gut.C1_sub <- subset(df.pa.gut.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
+df.pa.gut.C1_sub$OTU <- row.names(df.pa.gut.C1_sub)
+
+Importance_Gut_sub2$OTU <- Importance_Gut_sub2$`Log2change`
+Importance_Gut_sub3 <- left_join(Importance_Gut_sub2, df.pa.gut.C1_sub, by="OTU")
+rownames(Importance_Gut_sub3) <- rownames(Importance_Gut_sub2)
+cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
+
+Importance_Gut_sub3 <- Importance_Gut_sub3[order(-Importance_Gut_sub3$Importance),]
+Importance_Gut_sub3$taxonomy.Family[is.na(Importance_Gut_sub3$taxonomy.Family)] <- "_milk"
+Importance_Gut_sub3$taxonomy.Phylum[is.na(Importance_Gut_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
+Importance_Gut_sub3$prevalence[is.na(Importance_Gut_sub3$prevalence)] <- 10
+Importance_Gut_sub3 <- head(Importance_Gut_sub3, 20)
+
+Importance_Gut_sub3_Gut <- subset(Importance_Gut_sub3, Trajectory == "Prevalence Trajectory")
+Combined_importance_Prev <- ggplot(Importance_Gut_sub3_Gut,aes(y=reorder(OTU, Importance),x=Importance))+
+  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
+  scale_color_manual(values = cbPalette) + labs(x="Importance")
+
+tiff(file = "Fig_5_G_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
+Combined_importance
+dev.off()
+```
+
+```{r}
+Gut_ROC_plot <- ggplot() +
+  geom_roc(aes(d = True, m = Predicted, color="1"), roc_curves_Gut_trajectories_milk_components, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="2"), roc_curves_Gut_trajectories, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="3"), roc_curves_Gut_microbes_3_months, n.cuts = 0) +
+  geom_roc(aes(d = True, m = Predicted, color="4"), roc_curves_Gut_microbes_1_year, n.cuts = 0) +
+  geom_line(aes(x,x), size = 0.2) + theme_bw() + labs(x = "False Positive fraction",
+                                                      y = "True Positive fraction") + theme_bw(base_size=12)
+tiff(file = "Fig_5_G_ROC_plot.tiff", width = 1500, height = 900, units = "px", res = 300) 
+Gut_ROC_plot
+dev.off()
+```

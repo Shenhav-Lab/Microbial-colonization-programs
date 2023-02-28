@@ -1,0 +1,124 @@
+---
+title: "Table S1"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setup 
+
+```{r, message=FALSE, warning=FALSE}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(ggplot2); packageVersion('ggplot2')
+library(tableone); packageVersion('tableone')
+library(tidyr); packageVersion('tidyr')
+library(reshape2); packageVersion('reshape2')
+
+source("Preprocessing/Functions.R")
+```
+
+
+```{r}
+theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=10), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
+
+mycols30 <- c("#e9fcff","#7435e2","#b9f2b7","#25007a","#ffed5c","#0153d2","#75a800","#93007a", "purple", "#ef0025","#fd6a00","#0191f9","#ffa32b","#004769","#c8ff97","#a3005a","#5d8300","#b5b2ff","#8e7a00","#ff77a1","#004b19","#ff7a5f","#00615b","#9f6000","#715333","#ffedb0","#540500","#00d488", "black","#ffbbd2","#01bfae", "#e82769", "grey")
+```
+
+**Data subsets**
+```{r} 
+data_NG2 <- readRDS("Data_subsets/Main_UnRarefied_NasalGut_Subset.rds")
+
+## total samples, not paired (used for Fig 1B & C stacked bars)
+table(sample_data(data_NG2)$SampleType, sample_data(data_NG2)$Visit)
+
+
+# Data used for downstream trajectory analyses - participants with both 3 month and 1 year data for nasal and/or gut (use for Table S1) 
+Traj_data_ls <- readRDS("Data_subsets/ALL_Trajectory_Derived_Data.rds") 
+Traj_data_ls_2 <- merge( subset(Traj_data_ls$Trajectories_Nasal_to181_Gut_at182, select = c("Observed_N1y3m", "Observed_G1y3m")), 
+                         Traj_data_ls$Metadata, by = "row.names")
+N_3m1y <- subset(Traj_data_ls_2, !is.na(Observed_N1y3m))
+G_3m1y<- subset(Traj_data_ls_2, !is.na(Observed_G1y3m))
+NG_3m1y <- subset(Traj_data_ls_2, !is.na(Observed_G1y3m) & !is.na(Observed_N1y3m)) 
+
+Traj_dfs_Long <- rbind(N_3m1y, G_3m1y, NG_3m1y)
+
+Traj_dfs_Long$Sample_Visit <- c(rep("Nasal Trajectory", nrow(N_3m1y)), rep("Gut Trajectory", nrow(G_3m1y)), rep("Nasal-Gut Trajectory", nrow(NG_3m1y)))
+
+table(Traj_dfs_Long$Sample_Visit)
+```
+
+
+# Participant characteristic table for paired data vs overall data (Table S1)
+```{r}
+## Also add column for all participants in CHILD - read in this metadata
+CHILD_metadata_all3 <- readRDS(file="Preprocessing/metadata_input/4FINAL_Full_Cleaned_KF_Modified_V2_withRE_forSubj_withNG.rds") 
+
+# variables used (either in main analyses or as covariates/etc.) in analyses
+Vars_used <- c("age_1y_months", "age_3m_months", "atbx", "AwayfromHome_1y", "BF_12m_sampling", "BF_status_3m_sampling", "birthmode2", "childgender", "colds_0to3m", "coldsnum_6to12m", "Fever_1y",  "Fever_3m", "gest_days", "mom_age_birth", "mom_asthma_ever",  "mom_atopy",  "mom_bmi_best", "mom_smoke_1y", "Mother_abs_birth_yn",  "older_sibs", "prenatal_smoke", "race_mom4", "Season_1y", "Season_3m", "StudyCenter", "weight_12", "weight_3", "RE_Virus_1y",  "RE_Virus_3m", "WheezeTraj",  "asthma_3y", "asthma_5y" , "atopy3y", "Sample_Visit")
+
+# data_NG2 sample data as dataframe
+data_NG_forS1 <- as(sample_data(data_NG2), "data.frame")
+
+# Add some missing varibles to datasets
+## add the sample_visit var to other datasets too - this variable will be used to differentiate these datasets after merging 
+data_NG_forS1$Sample_Visit <- paste(data_NG_forS1$SampleType, data_NG_forS1$Visit, sep=" ")
+CHILD_metadata_all3$Sample_Visit <- "Overall Cohort"
+
+## add the RE_Virus_1y and RE_Virus_3m variable for data_NG2
+data_NG_forS1$RE_Virus_1y <- ifelse(as.character(data_NG_forS1$Sample_Visit) %in% c("Gut 1 Year", "Nasal 1 Year"), as.character(data_NG_forS1$RE_Virus), NA) 
+### IF Visit == 1 year, then this is equal to RE_Virus var otherwise make NA
+data_NG_forS1$RE_Virus_3m <- ifelse(as.character(data_NG_forS1$Sample_Visit) %in% c("Gut 3 Months", "Nasal 3 Months"), as.character(data_NG_forS1$RE_Virus), NA) ### IF Visit == 3 month, then this is equal to RE_Virus var otherwise make NA
+
+# select only variables used for each dataset to include
+data_NG_forS1_2 <- subset(data_NG_forS1, select = Vars_used)
+
+Traj_dfs_forS1 <- subset(Traj_dfs_Long, select = Vars_used)
+
+## overall cohort edit - in addition to selecting only variables used, remove participants with not even implied breastfeeding data first (these participants are from the vangard subset)
+overall_forS1 <- subset(CHILD_metadata_all3, !is.na(BF_duration_imp), select = Vars_used)
+
+# MERGE datasets
+
+All_datasets_S1 <- rbind(data_NG_forS1_2, Traj_dfs_forS1, overall_forS1)
+All_datasets_S1$Sample_Visit <- factor(All_datasets_S1$Sample_Visit, levels = c("Nasal 3 Months", "Nasal 1 Year", "Gut 3 Months", "Gut 1 Year", "Nasal Trajectory", "Gut Trajectory", "Nasal-Gut Trajectory", "Overall Cohort"))
+table(All_datasets_S1$Sample_Visit) 
+```
+
+```{r}
+# Extra edit - want gestational age in weeks for table
+All_datasets_S1$gest_weeks <- All_datasets_S1$gest_days/7
+All_datasets_S1$gest_days <- NULL
+
+# TABLE 1
+colnames(All_datasets_S1) # rename 
+colnames(All_datasets_S1) <- c("Age; 1-year (months)","Age; 3-month (months)","Antibiotics; 0-1Y", "Daycare, 1Y", "Breastfeeding; 1-year",  "Breastfeeding status; 3-month", "Birth mode", "Sex", "Colds; 0-3M", "number Colds, 6-12M", "Fever; 6-12M", "Fever; 0-3M", "Maternal age", "Maternal asthma", "Maternal atopy", "Maternal BMI", "Maternal smoke; 1Y", "Antibiotics; birth", "Older siblings", "Prenatal smoke", "Maternal ethnicity", "Season; 1-year", "Season; 3-month","Center", "Weight; 1Y (kg)", "Weight, 3M (kg)", "R/E virus; 1-year", "R/E virus; 3-month", "Wheeze Trajectory", "Asthma; 3Y", "Asthma; 5Y", "Atopy; 3Y", "Sample_Visit", "Gestational age (weeks)") # 3-month and 1-year indicate sampling times. 6M/1Y/3M=assessments/visits
+
+# grouping Transient and intermediate wheeze for table
+All_datasets_S1$`Wheeze Trajectory` <- gsub("Intermediate|Transient", "Transient or Intermediate", All_datasets_S1$`Wheeze Trajectory`)
+table(All_datasets_S1$`Wheeze Trajectory`)
+
+# reorder some factor levels
+All_datasets_S1$`Wheeze Trajectory` <- factor(All_datasets_S1$`Wheeze Trajectory`, levels = c("Persistent", "Never/infrequent", "Transient or Intermediate"))
+All_datasets_S1$`Asthma; 3Y` <- factor(All_datasets_S1$`Asthma; 3Y`, levels = c("Probable", "No", "Possible"))
+All_datasets_S1$`Asthma; 5Y` <- factor(All_datasets_S1$`Asthma; 5Y`, levels = c("Probable", "No", "Possible")) # marking Possible as excluded
+All_datasets_S1$`Breastfeeding status; 3-month` <- factor(All_datasets_S1$`Breastfeeding status; 3-month`, levels = c("Exclusive", "Partial", "No BM"))
+All_datasets_S1$`Season; 1-year` <- factor(All_datasets_S1$`Season; 1-year`, levels = c("Winter", "Spring", "Summer", "Fall"))
+All_datasets_S1$`Season; 3-month` <- factor(All_datasets_S1$`Season; 3-month`, levels = c("Winter", "Spring", "Summer", "Fall"))
+
+
+
+# reorder vars in table func rather than dataframe
+reordered_Vars <- c( "Breastfeeding status; 3-month","Breastfeeding; 1-year","R/E virus; 3-month", "R/E virus; 1-year", "Colds; 0-3M", "number Colds, 6-12M", "Fever; 0-3M", "Fever; 6-12M", "Older siblings", "Daycare, 1Y", "Center", "Season; 3-month", "Season; 1-year", "Antibiotics; birth", "Antibiotics; 0-1Y", "Maternal smoke; 1Y",  "Prenatal smoke", "Maternal BMI", "Birth mode", "Maternal age",  "Maternal ethnicity", "Maternal asthma", "Maternal atopy","Sex", "Weight, 3M (kg)", "Weight; 1Y (kg)", "Gestational age (weeks)", "Age; 3-month (months)", "Age; 1-year (months)", "Wheeze Trajectory", "Asthma; 3Y", "Asthma; 5Y", "Atopy; 3Y")
+
+Table1_All_dfs <- CreateTableOne(vars = reordered_Vars, data = All_datasets_S1, strata = "Sample_Visit", includeNA=FALSE, test = TRUE) 
+Table1_All_dfs <- print(Table1_All_dfs, quote = FALSE, noSpaces = TRUE, printToggle = FALSE, contDigits=1)
+
+library(knitr)
+kable(Table1_All_dfs, format = "pipe")
+
+write.csv(Table1_All_dfs, file="Output/TableS1_DataSubsets_Participants.csv")
+```
+
