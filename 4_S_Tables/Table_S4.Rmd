@@ -1,7 +1,6 @@
 ---
-title: "Table S4"
+title: "Table S4. Permutation test results for the difference in the change in prevalence (1 year – 3 months) between infants exclusively breastfed and those no longer breastfed, and those with and without asthma at 3 years."
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -13,31 +12,17 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r, warning=FALSE, message=FALSE}
 R.version.string
 library(phyloseq); packageVersion('phyloseq')
-library(ggplot2); packageVersion('ggplot2')
-library(cowplot); packageVersion('cowplot')
-library(vegan); packageVersion('vegan')
-library(tidyr); packageVersion('tidyr')
-library(reshape2); packageVersion('reshape2')
 library(dplyr); packageVersion('dplyr')  
-library(lmPerm); packageVersion('lmPerm')
-library(UpSetR); packageVersion('UpSetR')
-library(ComplexHeatmap); packageVersion('ComplexHeatmap')
-library(circlize); packageVersion('circlize')
+library(here)
 
-source("Preprocessing/Functions.R")
-```
-
-```{r}
-theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
-
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3")
+source(paste0(here::here(), "/Functions.R"))
 ```
 
 ### Microbiota Trajectory data subsets used
 ```{r}
-Nasal_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Nasal_Trajectory_Subset.rds") # Prevalence dataset
+Nasal_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Nasal_Trajectory_Subset.rds")) # Prevalence dataset
 
-Gut_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Gut_Trajectory_Subset.rds") # Prevalence dataset
+Gut_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Gut_Trajectory_Subset.rds")) # Prevalence dataset
 ```
 
 ```{r}
@@ -49,199 +34,165 @@ G.pa.3m <- subset_samples(Gut_3M1Y_pa_filt, Visit == "3 Months")
 G.pa.1y <- subset_samples(Gut_3M1Y_pa_filt, Visit == "1 Year")
 ```
 
-## Nasal - McNemar test for overall prevalence trajectories
+
+# Table S4 permutation test results for breastfeeding and asthma are generated for Figure 3
+Same scripts as Fig_3.Rmd for these results
+
+## Nasal - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+```{r} 
+## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
+N_3m_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.3m), "matrix"))), row.names=sample_data(N.pa.3m)$CHILDid)
+N_1y_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.1y), "matrix"))), row.names=sample_data(N.pa.1y)$CHILDid)
+
+N_3m_otu <- N_3m_otu[order(row.names(N_3m_otu)),]
+N_1y_otu <- N_1y_otu[order(row.names(N_1y_otu)),]
+
+## Checking - colnames and Childid's are in the same order? Yes - good - can move forward
+identical(colnames(N_3m_otu), colnames(N_1y_otu))
+identical(row.names(N_1y_otu), row.names(N_3m_otu))
+
+## 1 Year minus 3 Month Prevalence For each Taxa
+change_3m1y_pa <- N_1y_otu - N_3m_otu # -1 = present at 3m not 1y, 1= present at 1y not 3m, 0=either present at both or neither timpoint
+dim(change_3m1y_pa) # Same order as original physeq obj
+
+# Sample data to merge with dataset
+sdf_toAdd <- sample_data(N.pa.1y)[order(sample_data(N.pa.1y)$CHILDid),]
+sdf_3m <- sample_data(N.pa.3m)[order(sample_data(N.pa.3m)$CHILDid),]
+## check that it's in the same order as change_3m1y_pa
+identical(row.names(change_3m1y_pa), sdf_toAdd$CHILDid) 
+identical(row.names(change_3m1y_pa), sdf_3m$CHILDid) 
+
+### same order so just merge data with sample metadata using data.frame
+change_3m1y_pa_sdf <- data.frame(change_3m1y_pa, sdf_toAdd, RE_virus_3m = sdf_3m$RE_Virus) # Using 1 year sdf for variables (will be same for 3m and 1y for almost all) - but also adding RE virus at 3 months as "RE_virus_3m". Note that "RE_Virus" is the RE virus at 1 year.
+
+N_taxa <- ncol(change_3m1y_pa) # number of taxa, to use in downstream code
+N_subj <- nrow(change_3m1y_pa) # number of subjects, to use in downstream code
+```
+
+## Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+```{r} 
+## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
+G_3m_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.3m), "matrix"))), row.names=sample_data(G.pa.3m)$CHILDid)
+G_1y_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.1y), "matrix"))), row.names=sample_data(G.pa.1y)$CHILDid)
+
+G_3m_otu <- G_3m_otu[order(row.names(G_3m_otu)),]
+G_1y_otu <- G_1y_otu[order(row.names(G_1y_otu)),]
+
+## Checking - colnames and Childid's are in the same order? Yes - good - can move forward
+identical(colnames(G_3m_otu), colnames(G_1y_otu))
+identical(row.names(G_3m_otu), row.names(G_1y_otu))
+
+## 1 Year minus 3 Month Prevalence For each Taxa
+change_3m1y_pa_G <- G_1y_otu - G_3m_otu # -1 = present at 3m not 1y, 1= present at 1y not 3m, 0=either present at both or neither timpoint
+dim(change_3m1y_pa_G) # Same order as original physeq obj
+
+sdf_toAdd <- sample_data(G.pa.1y)[order(sample_data(G.pa.1y)$CHILDid),]
+sdf_3m <- sample_data(G.pa.3m)[order(sample_data(G.pa.3m)$CHILDid),]
+## check that it's in the same order as change_3m1y_pa
+identical(row.names(change_3m1y_pa_G), sdf_toAdd$CHILDid) # order matches
+identical(row.names(change_3m1y_pa_G), sdf_3m$CHILDid) # order matches
+
+### same order so just merge data with sample metadata using data.frame
+change_3m1y_pa_G_sdf <- data.frame(change_3m1y_pa_G, sdf_toAdd, RE_virus_3m = sdf_3m$RE_Virus) # Using 1 year sdf for variables but also adding RE virus at 3 months as "RE_virus_3m". Note that "RE_Virus" is the RE virus at 1 year
+
+N_taxa_G <- ncol(change_3m1y_pa_G) # number of taxa, to use in downstream code
+N_subj_G <- nrow(change_3m1y_pa_G) # number of subjects, to use in downstream code
+```
+
+## Nasal - Breastfeeding 
+```{r} 
+X <- subset(change_3m1y_pa_sdf, BF_status_3m_sampling == "No BM")
+Y <- subset(change_3m1y_pa_sdf, BF_status_3m_sampling == "Exclusive")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.BF <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1],
+                             taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"),
+                             prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+df.pa.nasal.BF$pa.change.diff <- df.pa.nasal.BF$Y_P_Change - df.pa.nasal.BF$X_P_Change
+```
+## Gut - Breastfeeding 
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "No BM")
+Y <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "Exclusive")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.BF <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.BF$pa.change.diff <- df.pa.gut.BF$Y_P_Change - df.pa.gut.BF$X_P_Change
+```
+## Nasal - Asthma at 3 years 
+```{r} 
+X <- subset(change_3m1y_pa_sdf, asthma_3y == "Probable")
+Y <- subset(change_3m1y_pa_sdf, asthma_3y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.ast <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.ast$pa.change.diff <- df.pa.nasal.ast$Y_P_Change - df.pa.nasal.ast$X_P_Change
+```
+## Gut - Asthma at 3 years
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, asthma_3y == "Probable")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_3y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.ast <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.ast$pa.change.diff <- df.pa.gut.ast$Y_P_Change - df.pa.gut.ast$X_P_Change
+```
+
+# Additional permutation results from Fig_3.Rmd used(saved in chunk 52) 
+```{r}
+Per_test_df_ls <- readRDS(paste0(path, "Tables/PermTests/MAIN_Permutation_PrevTraj_Res.rds"))
+# NOTE - effect size sign is flipped in these results, but results are the same - in this case negative effect size = Later in Exclusive BF, later in 'healthy' vs asthma, etc. 
+```
 
 ```{r}
-# input
-N_taxa <- ntaxa(Nasal_3M1Y_pa_filt)
-N_subj <- nsamples(Nasal_3M1Y_pa_filt)/2
-TP_1 <- N.pa.3m
-TP_2 <- N.pa.1y
+Table_S4_N_BF <- merge(subset(Per_test_df_ls$BF_Nasal, select = c("p_value", "p_value_2")), 
+                    subset(df.pa.nasal.BF, select = c("X_P_Change", "Y_P_Change", "pa.change.diff")), 
+                    by="row.names")
 
-# setup
-N_3m_otu <- as.data.frame(t(as(otu_table(TP_1), "matrix")))
-N_1y_otu <- as.data.frame(t(as(otu_table(TP_2), "matrix")))
+Table_S4_N_Asthma <- merge(subset(Per_test_df_ls$Ast3y_Nasal, select = c("p_value", "p_value_2")), 
+                    subset(df.pa.nasal.ast, select = c("X_P_Change", "Y_P_Change", "pa.change.diff", 
+                                                       "prevalence", "taxonomy.Phylum", "taxonomy.Family" , "taxonomy.Genus", "taxonomy.ASV")), 
+                    by="row.names")
 
-N_3m_otu_sdf <- data.frame(N_3m_otu, CHILDid=sample_data(TP_1)$CHILDid)
-N_1y_otu_sdf <- data.frame(N_1y_otu, CHILDid=sample_data(TP_2)$CHILDid)
-
-## don't like how data.frame function changed the column names, changing back
-colnames(N_3m_otu_sdf)[1:N_taxa] <- colnames(N_3m_otu)
-colnames(N_1y_otu_sdf)[1:N_taxa] <- colnames(N_1y_otu)
-
-# Making sure 3m and 1y dataframe are in the same order
-N_3m_otu_sdf <- N_3m_otu_sdf[order(N_3m_otu_sdf$CHILDid),]
-N_1y_otu_sdf <- N_1y_otu_sdf[order(N_1y_otu_sdf$CHILDid),]
-
-identical(N_3m_otu_sdf$CHILDid, N_1y_otu_sdf$CHILDid) # good
-
-# are in the same order in both lists, remove ids for test
-N_3m_otu_sdf$CHILDid <- NULL
-N_1y_otu_sdf$CHILDid <- NULL
-
-# Removing the persistently present taxa that cannot be tested (~100% prevalence at both timepoints)
-N_3m_otu_sdf$`Streptococcus sp. 40` <- NULL 
-N_1y_otu_sdf$`Streptococcus sp. 40`  <- NULL
-```
-
-```{r}
-# McNemar test
-## list of contingency tables
-Nasal_Tab_3m1y <- mapply(FUN=table, as.list(N_3m_otu_sdf),  as.list(N_1y_otu_sdf) , SIMPLIFY = FALSE, USE.NAMES = TRUE) 
-
-## RUN
-Nasal_3m1y_Mcnem_p_df <- Nasal_Tab_3m1y %>% lapply(., FUN = mcnemar.test) %>% lapply(., function(x) {x["p.value"]}) %>% bind_rows(., .id = "OTU")
-
-Nasal_3m1y_Mcnem_p_df$p.value.BH <- p.adjust(Nasal_3m1y_Mcnem_p_df$p.value, method="BH" , n = length(Nasal_3m1y_Mcnem_p_df$p.value))
-
-# Calculate average proportion at 3 months and 1 year
-prop_3m <- taxa_sums(TP_1)/N_subj
-prop_1y <- taxa_sums(TP_2)/N_subj
-
-props <- data.frame(Nasal_3M_P=prop_3m*100, Nasal_1Y_P=prop_1y*100, Nasal_3M_SE=sqrt(prop_3m*(1-prop_3m)/N_subj), Nasal_1Y_SE=sqrt(prop_1y*(1-prop_1y)/N_subj))
-props$OTU <- row.names(props)
-
-# strep is 100 and 0 SE so no test done, automatic 100% persistent (NA p values for this one)
-Nasal_3m1y_Mcnem_p_df2 <- merge(Nasal_3m1y_Mcnem_p_df, props, by="OTU", all=TRUE) 
-
-# Calc change in prevalence
-Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M <- Nasal_3m1y_Mcnem_p_df2$Nasal_1Y_P - Nasal_3m1y_Mcnem_p_df2$Nasal_3M_P 
-```
-
-Using a more strict p-value threshold in addition to an effect size cutoff to define colonizers (checked volcano plots of nasal and gut before deciding on these thresholds)
-```{r, warning=FALSE}
-Nasal_3m1y_Mcnem_p_df2$Colonization_pattern_final <- ifelse(Nasal_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M < -7, "Early",
-                                                     ifelse(Nasal_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M >7, "Late", "Persistent"))
-
-### most taxa colonize later, and average change in prevalence for these late colonizers is 19.5%
-data_summary_V2(Nasal_3m1y_Mcnem_p_df2, varname = "Nasal_changeP_1Y3M", groupnames = "Colonization_pattern_final") 
-```
-
-## Gut - McNemar test for overall prevalence trajectories
-
-```{r}
-# input
-N_taxa_G <- ntaxa(Gut_3M1Y_pa_filt)
-N_subj_G <- nsamples(Gut_3M1Y_pa_filt)/2
-TP_1 <- G.pa.3m
-TP_2 <- G.pa.1y
-
-# setup
-
-# using dataset with all 3 month and 1 year gut and nasal samples for now - same infants in all datasets to reduce variation 
-G_3m_otu <- as.data.frame(t(as(otu_table(TP_1), "matrix")))
-G_1y_otu <- as.data.frame(t(as(otu_table(TP_2), "matrix")))
-
-G_3m_otu_sdf <- data.frame(G_3m_otu, CHILDid=sample_data(TP_1)$CHILDid)
-G_1y_otu_sdf <- data.frame(G_1y_otu, CHILDid=sample_data(TP_2)$CHILDid)
-
-## don't like how data.frame function changed the column names, changing back
-colnames(G_3m_otu_sdf)[1:N_taxa_G] <- colnames(G_3m_otu)
-colnames(G_1y_otu_sdf)[1:N_taxa_G] <- colnames(G_1y_otu)
+Table_S4_N <- merge(Table_S4_N_BF, Table_S4_N_Asthma, by = "Row.names", suffixes = c("_BF", "_Asthma"))
 
 
-G_3m_otu_sdf <- G_3m_otu_sdf[order(G_3m_otu_sdf$CHILDid),]
-G_1y_otu_sdf <- G_1y_otu_sdf[order(G_1y_otu_sdf$CHILDid),]
+Table_S4_G_BF <- merge(subset(Per_test_df_ls$BF_Gut, select = c("p_value", "p_value_2")), 
+                    subset(df.pa.gut.BF, select = c("X_P_Change", "Y_P_Change", "pa.change.diff")), 
+                    by="row.names")
 
-identical(G_3m_otu_sdf$CHILDid, G_1y_otu_sdf$CHILDid) # good
+Table_S4_G_Asthma <- merge(subset(Per_test_df_ls$Ast3y_Gut, select = c("p_value", "p_value_2")), 
+                    subset(df.pa.gut.ast, select = c("X_P_Change", "Y_P_Change", "pa.change.diff", 
+                                                       "prevalence", "taxonomy.Phylum", "taxonomy.Family" , "taxonomy.Genus", "taxonomy.ASV")), 
+                    by="row.names")
 
-# are in the same order in both lists
-G_3m_otu_sdf$CHILDid <- NULL
-G_1y_otu_sdf$CHILDid <- NULL
-```
+Table_S4_G <- merge(Table_S4_G_BF, Table_S4_G_Asthma, by = "Row.names", suffixes = c("_BF", "_Asthma"))
 
-```{r}
-# McNemar test
+# change some colnames
+colnames(Table_S4_N) <- gsub("taxonomy\\.", "", colnames(Table_S4_N))
+colnames(Table_S4_N)[names(Table_S4_N) == "Row.names"] <- "OTU_Taxonomy"
+colnames(Table_S4_N)[4:6]
+colnames(Table_S4_N)[4:6] <- c("Delta_P_NoBM", "Delta_P_Exclusive", "Delta_P_Diff_BM")
+colnames(Table_S4_N)[9:11]
+colnames(Table_S4_N)[9:11] <- c("Delta_P_Asthma3Y", "Delta_P_NoAsthma", "Delta_P_Diff_Asthma3Y")
+colnames(Table_S4_N)
 
-## list of contingency tables
-Gut_Tab_3m1y <- mapply(FUN=table, as.list(G_3m_otu_sdf),  as.list(G_1y_otu_sdf), SIMPLIFY = FALSE, USE.NAMES = TRUE) 
+colnames(Table_S4_G) <- gsub("taxonomy\\.", "", colnames(Table_S4_G))
+colnames(Table_S4_G)[names(Table_S4_G) == "Row.names"] <- "OTU_Taxonomy"
+colnames(Table_S4_G)[4:6]
+colnames(Table_S4_G)[4:6] <- c("Delta_P_NoBM", "Delta_P_Exclusive", "Delta_P_Diff_BM")
+colnames(Table_S4_G)[9:11]
+colnames(Table_S4_G)[9:11] <- c("Delta_P_Asthma3Y", "Delta_P_NoAsthma", "Delta_P_Diff_Asthma3Y")
+colnames(Table_S4_G)
 
-## RUN
-Gut_3m1y_Mcnem_p_df <- Gut_Tab_3m1y %>% lapply(., FUN = mcnemar.test) %>% lapply(., function(x) {x["p.value"]}) %>% bind_rows(., .id = "OTU")
-
-Gut_3m1y_Mcnem_p_df$p.value.BH <- p.adjust(Gut_3m1y_Mcnem_p_df$p.value, method="BH" , n = length(Gut_3m1y_Mcnem_p_df$p.value))
-
-# Calculate average proporition at 3 months and 1 year
-prop_3m <- taxa_sums(TP_1)/N_subj_G
-prop_1y <- taxa_sums(TP_2)/N_subj_G
-
-props <- data.frame(Gut_3M_P=prop_3m*100, Gut_1Y_P=prop_1y*100, Gut_3M_SE=sqrt(prop_3m*(1-prop_3m)/N_subj_G), Gut_1Y_SE=sqrt(prop_1y*(1-prop_1y)/N_subj_G))
-props$OTU <- row.names(props)
-
-# strep is 100 and 0 SE so no test done, automatic 100% persistent (NA p values for this one)
-Gut_3m1y_Mcnem_p_df2 <- merge(Gut_3m1y_Mcnem_p_df, props, by="OTU", all=TRUE) 
-
-# Calc change in prevalence
-Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M <- Gut_3m1y_Mcnem_p_df2$Gut_1Y_P - Gut_3m1y_Mcnem_p_df2$Gut_3M_P 
-```
-
-The Mcnemar test appears to be very sensitive. Use a more strict p-value threshold in addition to an effect size cutoff to define Late and Early colonizers as oppose to persistent (no change) colonizers.
-```{r}
-Gut_3m1y_Mcnem_p_df2$Colonization_pattern_final <- ifelse(Gut_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M < -7, "Early",
-                                                          ifelse(Gut_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M >7, "Late", "Persistent"))
-
-### most taxa colonize later (65), and average change in prevalence for these late colonizers is 15%
-data_summary(Gut_3m1y_Mcnem_p_df2, varname = "Gut_changeP_1Y3M", groupnames = "Colonization_pattern_final") 
-```
-
-
-### Compile & save all prevalence trajectory results
-```{r}
-# compile & save results for individ taxa
-
-# saving everything to output
-Per_test_df_ls <- list(Res_per_taxa_ast_N, Res_per_taxa_BF_N, Res_per_taxa_ast5y_N, 
-                       Res_per_taxa_ast3y5y_N, Res_per_taxa_wheeze_N, Res_per_taxa_atopy_N, Res_per_taxa_Cold_N, 
-                       Res_per_taxa_ast_G, Res_per_taxa_BF_G, Res_per_taxa_ast5y_G, Res_per_taxa_ast3y5y_G, 
-                       Res_per_taxa_wheeze_G, Res_per_taxa_atopy_G, Res_per_taxa_Cold_G)
-names(Per_test_df_ls) <-  c("Ast3y_Nasal", "BF_Nasal", "Ast5y_Nasal", "Ast3y_5y_Nasal", "Wheeze_Nasal", "Atopy_Nasal", "Cold_Nasal", 
-                            "Ast3y_Gut", "BF_Gut", "Ast5y_Gut", "Ast3y_5y_Gut", "Wheeze_Gut", "Atopy_Gut", "Cold_Gut")
-
-# Save as an overall rds file in Output/PermTests
-saveRDS(Per_test_df_ls, "Output/PermTests/ALL_Permutation_PrevTraj_Res.rds")
-
-# Save as individual csv files for others 
-outpath_Pt1 <- "Output/PermTests/Permutation_PrevTraj_Res"
-outfiles <- paste(outpath_Pt1, names(Per_test_df_ls), ".csv", sep = "_")
-
-mapply(function(x, y) write.csv(x, file=y, row.names = FALSE, quote = FALSE), x=Per_test_df_ls, y=outfiles, SIMPLIFY = FALSE)
-```
-
-
-```{r, include=FALSE}
-## Merge & save Main Asthma and BF results for Table S4
-Table_S4_N <- merge(Res_per_taxa_ast_N, Res_per_taxa_BF_N, by="row.names", suffixes = c("_Asthma", "_BF"))
-Table_S4_N$original_effect_diff_Asthma <- NULL # using effect size from other dataframe, the direction should ideally be flipped though it doesn't really matter
-Table_S4_N$original_effect_diff_BF <- NULL
-
-Table_S4_G <- merge(Res_per_taxa_ast_G, Res_per_taxa_BF_G, by="row.names", suffixes = c("_Asthma", "_BF"))
-Table_S4_G$original_effect_diff_Asthma<- NULL 
-Table_S4_G$original_effect_diff_BF <- NULL
-
-# Nasal effect sizes and taxonomy
-To_rm <- intersect(colnames(df.pa.nasal.ast), colnames(df.pa.nasal.BF))[3:13] ## remove from 1 so not replicated
-Table_S4_N_est <- merge(subset(df.pa.nasal.ast, select =setdiff(colnames(df.pa.nasal.ast), To_rm)), 
-                        df.pa.nasal.BF, by="row.names", suffixes = c("_Asthma", "_BF"))
-Table_S4_N_est$Phylum <- NULL
-Table_S4_N_est$taxonomy.Kingdom <- NULL
-Table_S4_N_est$taxonomy.LefSe_Taxonomy_toGenus <- NULL
-
-# Gut effect sizes and taxonomy
-To_rm <- intersect(colnames(df.pa.gut.ast), colnames(df.pa.gut.BF))[3:13] ## remove from 1 so not replicated
-Table_S4_G_est <- merge(subset(df.pa.gut.ast, select =setdiff(colnames(df.pa.gut.ast), To_rm)), 
-                        df.pa.gut.BF, by="row.names", suffixes = c("_Asthma", "_BF"))
-Table_S4_G_est$Phylum <- NULL
-Table_S4_G_est$taxonomy.Kingdom <- NULL
-Table_S4_G_est$taxonomy.LefSe_Taxonomy_toGenus <- NULL
-
-## merge
-Table_S4_N2 <- merge(Table_S4_N, Table_S4_N_est, by="Row.names")
-Table_S4_G2 <- merge(Table_S4_G, Table_S4_G_est, by="Row.names")
-
-colnames(Table_S4_N2)[names(Table_S4_N2) == "Row.names"] <- "OTU_Taxonomy"
-colnames(Table_S4_G2)[names(Table_S4_G2) == "Row.names"] <- "OTU_Taxonomy"
-
-write.csv(Table_S4_N, file="Output/TableS4_Permutation_test_res_Nasal.csv")
-write.csv(Table_S4_G, file="Output/TableS4_Permutation_test_res_Gut.csv")
+write.csv(Table_S4_N, file=paste0(path, "Tables/TableS4_Permutation_test_res_Nasal.csv"))
+write.csv(Table_S4_G, file=paste0(path, "Tables/TableS4_Permutation_test_res_Gut.csv"))
 ```
 

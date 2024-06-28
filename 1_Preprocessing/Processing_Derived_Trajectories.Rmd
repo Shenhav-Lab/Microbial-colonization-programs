@@ -15,16 +15,17 @@ library(tidyr); packageVersion('tidyr')
 library(tidyverse); packageVersion('tidyverse')
 library(ggplot2); packageVersion('ggplot2')
 library(reshape2); packageVersion('reshape2')
+library(here)
 
-source("Preprocessing/Functions.R")
+source(paste0(here::here(), "/Functions.R"))
 ```
 
 ```{r} 
 ## used for abundance analyses
-UnRarefy <- readRDS("Preprocessing/final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds")
+UnRarefy <- readRDS(paste0(path, "Data/Preprocessing/final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds"))
 
 ## used for prevalence-based analyses
-Rarefy <- readRDS(file="Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds")
+Rarefy <- readRDS(paste0(path, file="Data/Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds"))
 ```
 
 ```{r, include=FALSE} 
@@ -135,7 +136,7 @@ data_NG2
 
 table(sample_data(data_NG2)$Visit, sample_data(data_NG2)$SampleType)
 
-saveRDS(data_NG2, file = "Data_subsets/Main_UnRarefied_NasalGut_Subset.rds")
+saveRDS(data_NG2, file = paste0(path, "Data/Data_subsets/Main_UnRarefied_NasalGut_Subset.rds"))
 ```
 
 
@@ -163,7 +164,7 @@ Main_data_2 <- prune_taxa(taxa_sums(Main_data_2)>0, Main_data_2) # removing any 
 
 table(sample_data(Main_data_2)$Visit, sample_data(Main_data_2)$SampleType)
 
-saveRDS(Main_data_2, file = "Data_subsets/Main_Rarefied_NasalGut_Subset.rds")
+saveRDS(Main_data_2, file = paste0(path, "Data/Data_subsets/Main_Rarefied_NasalGut_Subset.rds"))
 ```
 
 
@@ -192,7 +193,7 @@ Nasal_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(nasal_3m_tax_filt, taxonomic
 Nasal_3M1Y_pa_filt <- transform_sample_counts(Nasal_3M1Y_all_filt, function(abund) 1*(abund>0))
 Nasal_3M1Y_pa_filt # 171 taxa & 3090 Samples
 
-saveRDS(Nasal_3M1Y_pa_filt, file = "Data_subsets/Main_Nasal_Trajectory_Subset.rds")
+saveRDS(Nasal_3M1Y_pa_filt, file = paste0(path, "Data/Data_subsets/Main_Nasal_Trajectory_Subset.rds"))
 ```
 
 ### Gut data
@@ -215,7 +216,7 @@ Gut_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(Gut_3m_tax_filt, taxonomic.ran
 Gut_3M1Y_pa_filt <- transform_sample_counts(Gut_3M1Y_all_filt, function(abund) 1*(abund>0))
 Gut_3M1Y_pa_filt 
 
-saveRDS(Gut_3M1Y_pa_filt, file = "Data_subsets/Main_Gut_Trajectory_Subset.rds")
+saveRDS(Gut_3M1Y_pa_filt, file = paste0(path, "Data/Data_subsets/Main_Gut_Trajectory_Subset.rds"))
 ```
 
 
@@ -337,7 +338,7 @@ dim(N_PerInfant_coloniz)
 N_Sum_Patterns_perTaxa <- data_sum(N_3m1y_otu_sdf_m2, varname = "value", groupnames = c("variable", "Colonization_Pattern"))
 N_Sum_Patterns_perTaxa$Pct_Taxa_Colonize_Infant <- N_Sum_Patterns_perTaxa$sum*100/nrow(G3M1Y_colonize)
 N_PerTaxa_coloniz <- dcast(N_Sum_Patterns_perTaxa, variable~Colonization_Pattern, value.var = "Pct_Taxa_Colonize_Infant", mean)
-### write.csv(N_PerTaxa_coloniz, file="Output/Nasal_perTaxa_PctColonizeInfant.csv")
+### write.csv(N_PerTaxa_coloniz, file="Data/Data_subsets/Nasal_perTaxa_PctColonizeInfant.csv")
 ```
 N_PerInfant_coloniz, to merge with colonication feature table
 
@@ -371,7 +372,7 @@ dim(G_PerInfant_coloniz)
 G_Sum_Patterns_perTaxa <- data_sum(G_3m1y_otu_sdf_m2, varname = "value", groupnames = c("variable", "Colonization_Pattern"))
 G_Sum_Patterns_perTaxa$Pct_Taxa_Colonize_Infant <- G_Sum_Patterns_perTaxa$sum*100/nrow(G3M1Y_colonize)
 G_PerTaxa_coloniz <- dcast(G_Sum_Patterns_perTaxa, variable~Colonization_Pattern, value.var = "Pct_Taxa_Colonize_Infant", mean)
-### write.csv(G_PerTaxa_coloniz, file="Output/Gut_perTaxa_PctColonizeInfant.csv")
+### write.csv(G_PerTaxa_coloniz, file="Data/Data_subsets/Gut_perTaxa_PctColonizeInfant.csv")
 ```
 G_PerInfant_coloniz, to merge with colonization feature table
 
@@ -480,7 +481,7 @@ Compiled Nasal/Gut Trajectory data: GN_3m1y_all_traj
 Main_vars <- c("CHILDid", "WheezeTraj", "asthma_3y", "asthma_5y", "atopy3y", "BM_mode_3m", "BF_status_3m_sampling", "BF_12m_sampling", "older_sibs", "older_sibs_living", "AwayfromHome_1y", "childgender", "atbx", "Mom_abs_3mo_IV_oral_supp_yn", "Mother_abs_birth_yn", "StudyCenter", "birthmode2", "mom_bmi_best", "mom_age_birth", "Season_1y", "Season_3m", "age_1y_months", "age_3m_months", "prenatal_smoke", "gest_days", "weight_0", "weight_3","weight_12", "race_mom4", "mom_asthma_ever", "mom_atopy", "colds_0to3m", "Fever_6m", "Fever_3m", "Fever_1y", "Solids_3m_sampling", "Smoked_AtHome3m", "Furry_Pets_3m", "coldsnum_0to3m", "coldsnum_6to12m", "mom_smoke_1y", "BF_duration_imp") 
 
 ### Use Participant-Level metadata (not longitudinal version) - this is easier for trajectory data
-CHILD_metadata_all <- readRDS(file="Preprocessing/metadata_input/3FINAL_Full_Cleaned_KF_Modified_Updated-05222021_withSprio") 
+CHILD_metadata_all <- readRDS(paste0(path, "Data/Preprocessing/metadata_input/3FINAL_Full_Cleaned_KF_Modified_Updated-05222021_withSprio"))
 
 CHILD_metadata_sub <- subset(CHILD_metadata_all, select = Main_vars)
 ```
@@ -566,7 +567,7 @@ lapply(as.list(sdf_cat), levels) # Looks much better
 identical(rownames(sdf_cat), rownames(sdf_other))
 CHILD_metadata_all3 <- data.frame(sdf_cat, sdf_other)
 
-saveRDS(CHILD_metadata_all3, file="Preprocessing/metadata_input/4FINAL_Full_Cleaned_KF_Modified_V2_withRE_forSubj_withNG.rds") ## all CHILD participants, save edited version
+saveRDS(CHILD_metadata_all3, file=paste0(path, "Data/Preprocessing/metadata_input/4FINAL_Full_Cleaned_KF_Modified_V2_withRE_forSubj_withNG.rds")) ## all CHILD participants, save edited version
 ```
 
 #### Link Participant metadata with Microbiome Trajectory data and save**
@@ -582,7 +583,7 @@ Traj_data_ls <- list(GN_3m1y_all_traj, sdf_forAllTrajs)
 names(Traj_data_ls) <- c("Trajectories_Nasal_to181_Gut_at182", "Metadata") # indicating where gut Trajs start
 str(Traj_data_ls)
 
-saveRDS(Traj_data_ls, file="Data_subsets/ALL_Trajectory_Derived_Data.rds") 
+saveRDS(Traj_data_ls, file=paste0(path, "Data/Data_subsets/ALL_Trajectory_Derived_Data.rds"))
 ```
 
 

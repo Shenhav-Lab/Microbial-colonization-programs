@@ -1,195 +1,53 @@
 ---
-title: "Overlap in associations between microbiota prevalence trajectories and breastfeeding and respiratory phenotypes (Figure S5)"
+title: "Figure S5. Microbiota richness and colonization patterns between infants with and without asthma at 5 years, and with and without asthma at both 3 and 5 years."
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-## Setup 
+## Setup
 
 ```{r, warning=FALSE, message=FALSE}
 R.version.string
 library(phyloseq); packageVersion('phyloseq')
 library(ggplot2); packageVersion('ggplot2')
-library(cowplot); packageVersion('cowplot')
-library(vegan); packageVersion('vegan')
+library(dplyr); packageVersion('dplyr')   
 library(tidyr); packageVersion('tidyr')
 library(reshape2); packageVersion('reshape2')
-library(dplyr); packageVersion('dplyr')  
-library(lmPerm); packageVersion('lmPerm')
-library(UpSetR); packageVersion('UpSetR')
-library(ComplexHeatmap); packageVersion('ComplexHeatmap')
-library(circlize); packageVersion('circlize')
+library(ggsignif); packageVersion('ggsignif')
+library(cowplot); packageVersion('cowplot')
+library(here)
 
-source("Preprocessing/Functions.R")
-```
+source(paste0(here::here(), "/Functions.R"))
 
-```{r}
 theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
 
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3")
+Trj_cols <- c("#f2aeb0", "#f08a0c")
 ```
 
-### Microbiota Trajectory data subsets used
+**Data subsets used**
+Microbiota Trajectory data subsets used
 ```{r}
-Nasal_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Nasal_Trajectory_Subset.rds") # Prevalence dataset
+Nasal_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Nasal_Trajectory_Subset.rds")) # Prevalence dataset
 
-Gut_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Gut_Trajectory_Subset.rds") # Prevalence dataset
-```
+Gut_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Gut_Trajectory_Subset.rds")) # Prevalence dataset
 
-```{r}
 # splitting by timepoint for downstream analyses
 N.pa.3m <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "3 Months")
 N.pa.1y <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "1 Year")
 
 G.pa.3m <- subset_samples(Gut_3M1Y_pa_filt, Visit == "3 Months")
 G.pa.1y <- subset_samples(Gut_3M1Y_pa_filt, Visit == "1 Year")
+
+# Derived Trajectory variables for Fig S5B & S5C
+Traj_data_ls <- readRDS(paste0(path, "Data/Data_subsets/ALL_Trajectory_Derived_Data.rds"))
 ```
 
 
-## Nasal - McNemar test for overall prevalence trajectories
+# Figure S5A & S5C - Prevalence Trajectory Coordinate plots for Asthma at 5 years and Asthma at 3 years that persists to 5 years 
 
-```{r}
-# input
-N_taxa <- ntaxa(Nasal_3M1Y_pa_filt)
-N_subj <- nsamples(Nasal_3M1Y_pa_filt)/2
-TP_1 <- N.pa.3m
-TP_2 <- N.pa.1y
-
-# setup
-N_3m_otu <- as.data.frame(t(as(otu_table(TP_1), "matrix")))
-N_1y_otu <- as.data.frame(t(as(otu_table(TP_2), "matrix")))
-
-N_3m_otu_sdf <- data.frame(N_3m_otu, CHILDid=sample_data(TP_1)$CHILDid)
-N_1y_otu_sdf <- data.frame(N_1y_otu, CHILDid=sample_data(TP_2)$CHILDid)
-
-## don't like how data.frame function changed the column names, changing back
-colnames(N_3m_otu_sdf)[1:N_taxa] <- colnames(N_3m_otu)
-colnames(N_1y_otu_sdf)[1:N_taxa] <- colnames(N_1y_otu)
-
-# Making sure 3m and 1y dataframe are in the same order
-N_3m_otu_sdf <- N_3m_otu_sdf[order(N_3m_otu_sdf$CHILDid),]
-N_1y_otu_sdf <- N_1y_otu_sdf[order(N_1y_otu_sdf$CHILDid),]
-
-identical(N_3m_otu_sdf$CHILDid, N_1y_otu_sdf$CHILDid) # good
-
-# are in the same order in both lists, remove ids for test
-N_3m_otu_sdf$CHILDid <- NULL
-N_1y_otu_sdf$CHILDid <- NULL
-
-# Removing the persistently present taxa that cannot be tested (~100% prevalence at both timepoints)
-N_3m_otu_sdf$`Streptococcus sp. 40` <- NULL 
-N_1y_otu_sdf$`Streptococcus sp. 40`  <- NULL
-```
-
-```{r}
-# McNemar test
-## list of contingency tables
-Nasal_Tab_3m1y <- mapply(FUN=table, as.list(N_3m_otu_sdf),  as.list(N_1y_otu_sdf) , SIMPLIFY = FALSE, USE.NAMES = TRUE) 
-
-## RUN
-Nasal_3m1y_Mcnem_p_df <- Nasal_Tab_3m1y %>% lapply(., FUN = mcnemar.test) %>% lapply(., function(x) {x["p.value"]}) %>% bind_rows(., .id = "OTU")
-
-Nasal_3m1y_Mcnem_p_df$p.value.BH <- p.adjust(Nasal_3m1y_Mcnem_p_df$p.value, method="BH" , n = length(Nasal_3m1y_Mcnem_p_df$p.value))
-
-# Calculate average proportion at 3 months and 1 year
-prop_3m <- taxa_sums(TP_1)/N_subj
-prop_1y <- taxa_sums(TP_2)/N_subj
-
-props <- data.frame(Nasal_3M_P=prop_3m*100, Nasal_1Y_P=prop_1y*100, Nasal_3M_SE=sqrt(prop_3m*(1-prop_3m)/N_subj), Nasal_1Y_SE=sqrt(prop_1y*(1-prop_1y)/N_subj))
-props$OTU <- row.names(props)
-
-# strep is 100 and 0 SE so no test done, automatic 100% persistent (NA p values for this one)
-Nasal_3m1y_Mcnem_p_df2 <- merge(Nasal_3m1y_Mcnem_p_df, props, by="OTU", all=TRUE) 
-
-# Calc change in prevalence
-Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M <- Nasal_3m1y_Mcnem_p_df2$Nasal_1Y_P - Nasal_3m1y_Mcnem_p_df2$Nasal_3M_P 
-```
-
-Using a more strict p-value threshold in addition to an effect size cutoff to define colonizers (checked volcano plots of nasal and gut before deciding on these thresholds)
-```{r, warning=FALSE}
-Nasal_3m1y_Mcnem_p_df2$Colonization_pattern_final <- ifelse(Nasal_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M < -7, "Early",
-                                                     ifelse(Nasal_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Nasal_3m1y_Mcnem_p_df2$Nasal_changeP_1Y3M >7, "Late", "Persistent"))
-
-### most taxa colonize later, and average change in prevalence for these late colonizers is 19.5%
-data_summary_V2(Nasal_3m1y_Mcnem_p_df2, varname = "Nasal_changeP_1Y3M", groupnames = "Colonization_pattern_final") 
-```
-
-
-## Gut - McNemar test for overall prevalence trajectories
-
-```{r}
-# input
-N_taxa_G <- ntaxa(Gut_3M1Y_pa_filt)
-N_subj_G <- nsamples(Gut_3M1Y_pa_filt)/2
-TP_1 <- G.pa.3m
-TP_2 <- G.pa.1y
-
-# setup
-
-# using dataset with all 3 month and 1 year gut and nasal samples for now - same infants in all datasets to reduce variation 
-G_3m_otu <- as.data.frame(t(as(otu_table(TP_1), "matrix")))
-G_1y_otu <- as.data.frame(t(as(otu_table(TP_2), "matrix")))
-
-G_3m_otu_sdf <- data.frame(G_3m_otu, CHILDid=sample_data(TP_1)$CHILDid)
-G_1y_otu_sdf <- data.frame(G_1y_otu, CHILDid=sample_data(TP_2)$CHILDid)
-
-## don't like how data.frame function changed the column names, changing back
-colnames(G_3m_otu_sdf)[1:N_taxa_G] <- colnames(G_3m_otu)
-colnames(G_1y_otu_sdf)[1:N_taxa_G] <- colnames(G_1y_otu)
-
-
-G_3m_otu_sdf <- G_3m_otu_sdf[order(G_3m_otu_sdf$CHILDid),]
-G_1y_otu_sdf <- G_1y_otu_sdf[order(G_1y_otu_sdf$CHILDid),]
-
-identical(G_3m_otu_sdf$CHILDid, G_1y_otu_sdf$CHILDid) # good
-
-# are in the same order in both lists
-G_3m_otu_sdf$CHILDid <- NULL
-G_1y_otu_sdf$CHILDid <- NULL
-```
-
-```{r}
-# McNemar test
-
-## list of contingency tables
-Gut_Tab_3m1y <- mapply(FUN=table, as.list(G_3m_otu_sdf),  as.list(G_1y_otu_sdf), SIMPLIFY = FALSE, USE.NAMES = TRUE) 
-
-## RUN
-Gut_3m1y_Mcnem_p_df <- Gut_Tab_3m1y %>% lapply(., FUN = mcnemar.test) %>% lapply(., function(x) {x["p.value"]}) %>% bind_rows(., .id = "OTU")
-
-Gut_3m1y_Mcnem_p_df$p.value.BH <- p.adjust(Gut_3m1y_Mcnem_p_df$p.value, method="BH" , n = length(Gut_3m1y_Mcnem_p_df$p.value))
-
-# Calculate average proporition at 3 months and 1 year
-prop_3m <- taxa_sums(TP_1)/N_subj_G
-prop_1y <- taxa_sums(TP_2)/N_subj_G
-
-props <- data.frame(Gut_3M_P=prop_3m*100, Gut_1Y_P=prop_1y*100, Gut_3M_SE=sqrt(prop_3m*(1-prop_3m)/N_subj_G), Gut_1Y_SE=sqrt(prop_1y*(1-prop_1y)/N_subj_G))
-props$OTU <- row.names(props)
-
-# strep is 100 and 0 SE so no test done, automatic 100% persistent (NA p values for this one)
-Gut_3m1y_Mcnem_p_df2 <- merge(Gut_3m1y_Mcnem_p_df, props, by="OTU", all=TRUE) 
-
-# Calc change in prevalence
-Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M <- Gut_3m1y_Mcnem_p_df2$Gut_1Y_P - Gut_3m1y_Mcnem_p_df2$Gut_3M_P 
-```
-
-The Mcnemar test appears to be very sensitive. Use a more strict p-value threshold in addition to an effect size cutoff to define Late and Early colonizers as oppose to persistent (no change) colonizers.
-```{r}
-Gut_3m1y_Mcnem_p_df2$Colonization_pattern_final <- ifelse(Gut_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M < -7, "Early",
-                                                          ifelse(Gut_3m1y_Mcnem_p_df2$p.value.BH < 0.001 & Gut_3m1y_Mcnem_p_df2$Gut_changeP_1Y3M >7, "Late", "Persistent"))
-
-### most taxa colonize later (65), and average change in prevalence for these late colonizers is 15%
-data_summary(Gut_3m1y_Mcnem_p_df2, varname = "Gut_changeP_1Y3M", groupnames = "Colonization_pattern_final") 
-```
-
-
-# Prevalence Trajectory Coordinate System & Permutation tests - Comparing Prevalence Trajectories Between Groups (Fig. S5)
-
-## Nasal - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+### Nasal - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
 To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
 ```{r} 
 ## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
@@ -220,9 +78,14 @@ change_3m1y_pa_sdf <- data.frame(change_3m1y_pa, sdf_toAdd, RE_virus_3m = sdf_3m
 N_taxa <- ncol(change_3m1y_pa) # number of taxa, to use in downstream code
 N_subj <- nrow(change_3m1y_pa) # number of subjects, to use in downstream code
 ```
-Objects used for Nasal trajectory plots: change_3m1y_pa_sdf, Nasal_3M1Y_pa_filt, N_taxa, N_subj 
 
-## Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+```{r} 
+# setup for plots
+Main_phyla <- c('Proteobacteria','Firmicutes', "Actinobacteria", "Bacteroidetes")
+cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3")
+```
+
+### Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
 To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
 ```{r} 
 ## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
@@ -252,400 +115,336 @@ change_3m1y_pa_G_sdf <- data.frame(change_3m1y_pa_G, sdf_toAdd, RE_virus_3m = sd
 N_taxa_G <- ncol(change_3m1y_pa_G) # number of taxa, to use in downstream code
 N_subj_G <- nrow(change_3m1y_pa_G) # number of subjects, to use in downstream code
 ```
-Objects used for gut trajectory plots: change_3m1y_pa_G_sdf, Gut_3M1Y_pa_filt, N_taxa_G, N_subj_G 
 
-## Save prevalence trajectory feature tables for later use (in mediation analysis, Fig. 6)
-```{r}
-## don't save with metadata - just save new derived data with CHILDid's as rownames: change_3m1y_pa, change_3m1y_pa_G; 
-### merge before saving, but first differentiate nasal vs gut trajectory features by prepending N or G
-colnames(change_3m1y_pa) <- gsub("^", "N_", colnames(change_3m1y_pa))
-colnames(change_3m1y_pa_G) <- gsub("^", "G_", colnames(change_3m1y_pa_G))
+## Figure S5A
 
-change_3m1y_pa_all <- merge(change_3m1y_pa, change_3m1y_pa_G, by="row.names", all=TRUE)
-row.names(change_3m1y_pa_all) <- change_3m1y_pa_all$Row.names
-change_3m1y_pa_all$Row.names <- NULL
-dim(change_3m1y_pa_all)
-write.csv(change_3m1y_pa_all, file="Output/Prevalence_Trajectory_Features_N171_G172.csv") # The first 171 columns are nasal taxa, 172 to end of df is gut
-```
-
+### Nasal - Asthma at 5 years 
 ```{r} 
-# setup for plots
-## for plot annotations:
-Main_phyla <- c('Proteobacteria','Firmicutes', "Actinobacteria", "Bacteroidetes")
-```
-
-
-### Extra Prevalence Trajectory analyses (Not shown but used for Figure 3D & S5)
-```{r} 
-# creating wheeze trajectory /atopy at 3 years combination variable
-
-## Nasal
-change_3m1y_pa_sdf$Wheeze_atopy_Traj <- ifelse(!is.na(change_3m1y_pa_sdf$WheezeTraj) & !is.na(change_3m1y_pa_sdf$atopy3y), paste(change_3m1y_pa_sdf$WheezeTraj, change_3m1y_pa_sdf$atopy3y, sep = ", Atopy "), NA) 
-
-## Gut
-change_3m1y_pa_G_sdf$Wheeze_atopy_Traj <- ifelse(!is.na(change_3m1y_pa_G_sdf$WheezeTraj) & !is.na(change_3m1y_pa_G_sdf$atopy3y), paste(change_3m1y_pa_G_sdf$WheezeTraj, change_3m1y_pa_G_sdf$atopy3y, sep = ", Atopy "), NA) # Using Atopy at 3Y b/c had better luck with that & b/c asthma_3y is the main asthma variable used. 
-
-# Focusing on:  "Persistent, Atopy No"; "Never/infrequent, Atopy Yes"; "Never/infrequent, Atopy No"
-```
-
-#### Nasal, Persistent Wheeze without Atopy at 3 years vs. no Wheeze or Atopy 
-```{r} 
-X <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Persistent, Atopy No")
-Y <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
+X <- subset(change_3m1y_pa_sdf, asthma_5y == "Probable")
+Y <- subset(change_3m1y_pa_sdf, asthma_5y == "No")
 
 # Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.nasal.Whz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+df.pa.nasal.ast5 <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
 
 # difference in change
-df.pa.nasal.Whz.atopy$pa.change.diff <- df.pa.nasal.Whz.atopy$Y_P_Change - df.pa.nasal.Whz.atopy$X_P_Change
+df.pa.nasal.ast5$pa.change.diff <- df.pa.nasal.ast5$Y_P_Change - df.pa.nasal.ast5$X_P_Change
 ```
-- Aesthetic things
+Aesthetics
 ```{r} 
 ## Plot by major phylum & annotate signif taxa
-df.pa.nasal.Whz.atopy$Phylum <- ifelse(df.pa.nasal.Whz.atopy$taxonomy.Phylum %in% Main_phyla, df.pa.nasal.Whz.atopy$taxonomy.Phylum, "Other")
+df.pa.nasal.ast5$Phylum <- ifelse(df.pa.nasal.ast5$taxonomy.Phylum %in% Main_phyla, df.pa.nasal.ast5$taxonomy.Phylum, "Other")
 #Reorder the phyla 
-df.pa.nasal.Whz.atopy$Phylum = factor(df.pa.nasal.Whz.atopy$Phylum, levels=c(Main_phyla, "Other"))
+df.pa.nasal.ast5$Phylum = factor(df.pa.nasal.ast5$Phylum, levels=c(Main_phyla, "Other"))
 ```
-- Plot Change in Prevalence 
+Plot Change in Prevalence
 ```{r} 
-x_lab <- paste("Wheeze, no Atopy (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Wheeze, no Atopy (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+x_lab <- paste("Asthma, 5 Years (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab <- paste("No Asthma (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
 
-Fig_Ext_N_Wheeze <- ggplot() + 
-  geom_point(data=df.pa.nasal.Whz.atopy, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
+Fig_S5A_N <- ggplot() + 
+  geom_point(data=df.pa.nasal.ast5, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
   xlab(x_lab) + ylab(y_lab) + 
   scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -30, yend = 60, colour = "red", size=0.5) + ggtitle("Nasal")
-Fig_Ext_N_Wheeze
+  scale_y_continuous(limits=c(-30,60), expand = c(0,0))+
+  scale_x_continuous(limits=c(-30,60), expand = c(0,0))+
+  annotate("segment", x = -30, xend = 60, y = -30, yend = 60, colour = "red", linewidth=0.5) + ggtitle("Nasal")
+Fig_S5A_N
+```
+Median change in prevalence of an OTU 
+```{r} 
+# Asthma
+summary(df.pa.nasal.ast5$X_P_Change)
+# No Asthma
+summary(df.pa.nasal.ast5$Y_P_Change)
 ```
 
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
+**Permutation test for Prevalence Trajectory analysis - See 'Functions.R' for perm_func_dfs function**
 ```{r} 
-source("Permutation_Tests_PrevTrajectories/09_Wheeze_Nasal.R")
+Res_ast5y_N <- perm_func_dfs(df.pa.nasal.ast5, change_3m1y_pa_sdf, 
+                           variable = "asthma_5y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa)
 
 # Test output
-# Res_per_taxa_wheeze_N - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_wheeze_N # Overall significance test
+Res_ast5y_N$global_res # Overall significance test; p_value = later in healthy
+# Res_per_ast5y_N - p-value assigned to each taxa
+Res_per_ast5y_N <- Res_ast5y_N$per_taxa_res
 ```
 
-
-#### Gut, Persistent Wheeze without Atopy at 3 years vs. no Wheeze or Atopy (Not shown but used for Figure 3D & S5)
+### Gut - Asthma at 5 years
 ```{r} 
-X <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Persistent, Atopy No")
-Y <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
+X <- subset(change_3m1y_pa_G_sdf, asthma_5y == "Probable")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_5y == "No")
 
 # Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.gut.Whz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+df.pa.gut.ast5 <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
 
 # difference in change
-df.pa.gut.Whz.atopy$pa.change.diff <- df.pa.gut.Whz.atopy$Y_P_Change - df.pa.gut.Whz.atopy$X_P_Change
+df.pa.gut.ast5$pa.change.diff <- df.pa.gut.ast5$Y_P_Change - df.pa.gut.ast5$X_P_Change
 ```
-- Aesthetic things
+Aesthetic things, not important
 ```{r} 
 ## Plot by major phylum & annotate signif taxa
-df.pa.gut.Whz.atopy$Phylum <- ifelse(df.pa.gut.Whz.atopy$taxonomy.Phylum %in% Main_phyla, df.pa.gut.Whz.atopy$taxonomy.Phylum, "Other")
+df.pa.gut.ast5$Phylum <- ifelse(df.pa.gut.ast5$taxonomy.Phylum %in% Main_phyla, df.pa.gut.ast5$taxonomy.Phylum, "Other")
 #Reorder the phyla 
-df.pa.gut.Whz.atopy$Phylum = factor(df.pa.gut.Whz.atopy$Phylum, levels=c(Main_phyla, "Other"))
+df.pa.gut.ast5$Phylum = factor(df.pa.gut.ast5$Phylum, levels=c(Main_phyla, "Other"))
 ```
-- Plot Change in Prevalence 
+Plot Change in Prevalence 
 ```{r} 
-x_lab <- paste("Wheeze, no Atopy (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Wheeze, no Atopy (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+x_lab <- paste("Asthma, 5 Years (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab <- paste("No Asthma (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
 
-Fig_Ext_G_Wheeze <- ggplot() + 
-  geom_point(data=df.pa.gut.Whz.atopy, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
-  xlab(x_lab) + ylab(y_lab) + 
+Fig_S5A_G <- ggplot() + 
+  geom_point(data=df.pa.gut.ast5, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
+  xlab(x_lab) +  ylab(y_lab) + 
   scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -30, yend = 60, colour = "red", size=0.5) + ggtitle("Gut")
-Fig_Ext_G_Wheeze
+  scale_y_continuous(limits=c(-30,60), expand = c(0,0))+
+  scale_x_continuous(limits=c(-30,60), expand = c(0,0))+
+  annotate("segment", x = -30, xend = 60, y = -30, yend = 60, colour = "red", linewidth=0.25) + ggtitle("Gut")
+Fig_S5A_G
+```
+Median change in prevalence of an OTU 
+```{r} 
+# Asthma
+summary(df.pa.gut.ast5$X_P_Change)
+# No Asthma
+summary(df.pa.gut.ast5$Y_P_Change)
 ```
 
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
+**Permutation test for Prevalence Trajectory analysis**
 ```{r} 
-source("Permutation_Tests_PrevTrajectories/10_Wheeze_Gut.R")
+Res_ast5y_G <- perm_func_dfs(df.pa.gut.ast5, change_3m1y_pa_G_sdf, 
+                           variable = "asthma_5y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa_G)
 
 # Test output
-# Res_per_taxa_wheeze_G - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_wheeze_G # Overall significance test
+Res_ast5y_G$global_res # Overall significance test; p_value = later in healthy
+# Res_per_ast5y_N - p-value assigned to each taxa
+Res_per_ast5y_G <- Res_ast5y_G$per_taxa_res
 ```
 
-#### Nasal, Atopy at 3 years without Persistent Wheeze vs. no Atopy or Wheeze (Not shown but used for Figure 3D & S5)
+
+## Figure S5C
+
+### Asthma at 3 years that persists to 5 years vs. no asthma at 3 and no asthma at 5 years
 ```{r} 
-X <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy Yes")
-Y <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
+# want probable asthma at 3 years, and probable or possible at 5 years. Those missing 5 year or 3 year asthma data will be NA for this variable
+change_3m1y_pa_sdf$asthma_3y_5y <- ifelse(change_3m1y_pa_sdf$asthma_3y == "Probable" & 
+                                            change_3m1y_pa_sdf$asthma_5y %in% c("Probable", "Possible"), "Yes", 
+                                          ifelse(change_3m1y_pa_sdf$asthma_3y == "No" & 
+                                            change_3m1y_pa_sdf$asthma_5y == "No", "No", NA))
+table(change_3m1y_pa_sdf$asthma_3y_5y)
+```
+
+```{r} 
+# want probable asthma at 3 years, and probable or possible at 5 years. Those missing 5 year or 3 year asthma data will be NA for this variable  
+change_3m1y_pa_G_sdf$asthma_3y_5y <- ifelse(change_3m1y_pa_G_sdf$asthma_3y == "Probable" & 
+                                            change_3m1y_pa_G_sdf$asthma_5y  %in% c("Probable", "Possible"), "Yes", 
+                                          ifelse(change_3m1y_pa_G_sdf$asthma_3y == "No" & 
+                                            change_3m1y_pa_G_sdf$asthma_5y == "No", "No", NA))
+
+table(change_3m1y_pa_G_sdf$asthma_3y_5y)
+```
+
+### Nasal - Asthma at 3 years that persists to 5 years
+```{r} 
+X <- subset(change_3m1y_pa_sdf, asthma_3y_5y == "Yes")
+Y <- subset(change_3m1y_pa_sdf, asthma_3y_5y == "No")
 
 # Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.nasal.NoWhz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+df.pa.nasal.ast.3y5y <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
 
 # difference in change
-df.pa.nasal.NoWhz.atopy$pa.change.diff <- df.pa.nasal.NoWhz.atopy$Y_P_Change - df.pa.nasal.NoWhz.atopy$X_P_Change
-```
-- Aesthetic things
-```{r} 
-## Plot by major phylum & annotate signif taxa
-df.pa.nasal.NoWhz.atopy$Phylum <- ifelse(df.pa.nasal.NoWhz.atopy$taxonomy.Phylum %in% Main_phyla, df.pa.nasal.NoWhz.atopy$taxonomy.Phylum, "Other")
-#Reorder the phyla 
-df.pa.nasal.NoWhz.atopy$Phylum = factor(df.pa.nasal.NoWhz.atopy$Phylum, levels=c(Main_phyla, "Other"))
-```
-- Plot Change in Prevalence 
-```{r} 
-x_lab <- paste("Atopy, no Wheeze (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Atopy, no Wheeze (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-
-Fig_Ext_N_Atopy <- ggplot() + 
-  geom_point(data=df.pa.nasal.NoWhz.atopy, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
-  xlab(x_lab) + 
-  ylab(y_lab) + 
-  scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -37, yend = 60, colour = "red", size=0.5) + ggtitle("Nasal")
-Fig_Ext_N_Atopy
-```
-
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
-```{r} 
-source("Permutation_Tests_PrevTrajectories/11_Atopy_Nasal.R")
-
-# Test output
-# Res_per_taxa_atopy_N - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_atopy_N # Overall significance test
-```
-
-
-#### Gut, Atopy at 3 years without Persistent Wheeze vs. no Atopy or Wheeze (Not shown but used for Figure 3D & S5)
-```{r} 
-X <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy Yes")
-Y <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
-
-# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.gut.NoWhz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
-
-# difference in change
-df.pa.gut.NoWhz.atopy$pa.change.diff <- df.pa.gut.NoWhz.atopy$Y_P_Change - df.pa.gut.NoWhz.atopy$X_P_Change
-```
-- Aesthetic things
-```{r} 
-## Plot by major phylum & annotate signif taxa
-df.pa.gut.NoWhz.atopy$Phylum <- ifelse(df.pa.gut.NoWhz.atopy$taxonomy.Phylum %in% Main_phyla, df.pa.gut.NoWhz.atopy$taxonomy.Phylum, "Other")
-#Reorder the phyla 
-df.pa.gut.NoWhz.atopy$Phylum = factor(df.pa.gut.NoWhz.atopy$Phylum, levels=c(Main_phyla, "Other"))
-```
-- Plot Change in Prevalence 
-```{r} 
-x_lab <- paste("Atopy, no Wheeze (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Atopy, no Wheeze (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-
-Fig_Ext_G_Atopy <- ggplot() + 
-  geom_point(data=df.pa.gut.NoWhz.atopy, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
-  xlab(x_lab) + ylab(y_lab) + 
-  scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -30, yend = 60, colour = "red", size=0.5) + ggtitle("Gut")
-Fig_Ext_G_Atopy
-```
-
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
-```{r} 
-source("Permutation_Tests_PrevTrajectories/12_Atopy_Gut.R")
-
-# Test output
-# Res_per_taxa_atopy_G - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_atopy_G # Overall significance test
-```
-
-
-#### Nasal, Colds 0-3 months (Not shown but used for Figure 3D & S5)
-```{r} 
-X <- subset(change_3m1y_pa_sdf, colds_0to3m == "Yes")
-Y <- subset(change_3m1y_pa_sdf, colds_0to3m == "No")
-
-# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.nasal.C1 <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
-
-# difference in change
-df.pa.nasal.C1$pa.change.diff <- df.pa.nasal.C1$Y_P_Change - df.pa.nasal.C1$X_P_Change
+df.pa.nasal.ast.3y5y$pa.change.diff <- df.pa.nasal.ast.3y5y$Y_P_Change - df.pa.nasal.ast.3y5y$X_P_Change
 ```
 Aesthetic things
 ```{r} 
 ## Plot by major phylum & annotate signif taxa
-df.pa.nasal.C1$Phylum <- ifelse(df.pa.nasal.C1$taxonomy.Phylum %in% Main_phyla, df.pa.nasal.C1$taxonomy.Phylum, "Other")
+df.pa.nasal.ast.3y5y$Phylum <- ifelse(df.pa.nasal.ast.3y5y$taxonomy.Phylum %in% Main_phyla, df.pa.nasal.ast.3y5y$taxonomy.Phylum, "Other")
 #Reorder the phyla 
-df.pa.nasal.C1$Phylum = factor(df.pa.nasal.C1$Phylum, levels=c(Main_phyla, "Other"))
+df.pa.nasal.ast.3y5y$Phylum = factor(df.pa.nasal.ast.3y5y$Phylum, levels=c(Main_phyla, "Other"))
 ```
-Plot Change in Prevalence 
+Plot Change in Prevalence
 ```{r} 
-x_lab <- paste("Colds (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Colds (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+x_lab <- paste("Asthma, 3 & 5 Years (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab <- paste("No Asthma (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
 
-Fig_Ext_N_Cold <- ggplot() + 
-  geom_point(data=df.pa.nasal.C1, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
+Fig_S5C_N <- ggplot() + 
+  geom_point(data=df.pa.nasal.ast.3y5y, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
   xlab(x_lab) + ylab(y_lab) + 
   scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60.1), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -37, yend = 60, colour = "red", size=0.5) + ggtitle("Nasal")
-Fig_Ext_N_Cold
+  scale_y_continuous(limits=c(-30,60), expand = c(0,0))+
+  scale_x_continuous(limits=c(-30,60), expand = c(0,0))+
+  annotate("segment", x = -30, xend = 60, y = -30, yend = 60, colour = "red", linewidth=0.5) + ggtitle("Nasal")
+Fig_S5C_N
+```
+Median change in prevalence of an OTU in asthma and non-asthma infants
+```{r} 
+# Asthma
+summary(df.pa.nasal.ast.3y5y$X_P_Change)
+# No Asthma
+summary(df.pa.nasal.ast.3y5y$Y_P_Change)
 ```
 
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
+**Permutation test for Prevalence Trajectory analysis**
 ```{r} 
-source("Permutation_Tests_PrevTrajectories/13_Colds_Nasal.R")
+Res_ast3y5y_N <- perm_func_dfs(df.pa.nasal.ast.3y5y, change_3m1y_pa_sdf, 
+                           variable = "asthma_3y_5y", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa)
 
 # Test output
-# Res_per_taxa_Cold_N - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_Cold_N # Overall significance test
+Res_ast3y5y_N$global_res # Overall significance test; p_value = later in healthy
+# Res_per_ast5y_N - p-value assigned to each taxa
+Res_per_ast3y5y_N <- Res_ast3y5y_N$per_taxa_res
 ```
 
-
-#### Gut, Colds 0-3 months (Not shown but used for Figure 3D & S5)
+### Gut - Asthma at 3 years that persists to 5 years
 ```{r} 
-X <- subset(change_3m1y_pa_G_sdf, colds_0to3m == "Yes")
-Y <- subset(change_3m1y_pa_G_sdf, colds_0to3m == "No")
+X <- subset(change_3m1y_pa_G_sdf, asthma_3y_5y == "Yes")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_3y_5y == "No")
 
 # Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
-df.pa.gut.C <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2))
+df.pa.gut.ast.3y5y <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
 
 # difference in change
-df.pa.gut.C$pa.change.diff <- df.pa.gut.C$Y_P_Change - df.pa.gut.C$X_P_Change
+df.pa.gut.ast.3y5y$pa.change.diff <- df.pa.gut.ast.3y5y$Y_P_Change - df.pa.gut.ast.3y5y$X_P_Change
 ```
-Asthetic things, not important
+Aesthetic things, not important
 ```{r} 
-## Plot by major phylum & annotate signif taxa
-df.pa.gut.C$Phylum <- ifelse(df.pa.gut.C$taxonomy.Phylum %in% Main_phyla, df.pa.gut.C$taxonomy.Phylum, "Other")
+df.pa.gut.ast.3y5y$Phylum <- ifelse(df.pa.gut.ast.3y5y$taxonomy.Phylum %in% c("Proteobacteria", "Actinobacteria", "Firmicutes", "Bacteroidetes"),
+                                      df.pa.gut.ast.3y5y$taxonomy.Phylum, "Other")
 #Reorder the phyla 
-df.pa.gut.C$Phylum = factor(df.pa.gut.C$Phylum, levels=c(Main_phyla, "Other"))
+df.pa.gut.ast.3y5y$Phylum = factor(df.pa.gut.ast.3y5y$Phylum, levels=c('Proteobacteria','Firmicutes', "Actinobacteria", "Bacteroidetes", "Other"))
 ```
 Plot Change in Prevalence 
 ```{r} 
-x_lab <- paste("Colds (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
-y_lab <- paste("No Colds (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+x_lab <- paste("Asthma, 3 & 5 Years (n=", nrow(X), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab <- paste("No Asthma (n=", nrow(Y), ")\n1 Year - 3 Month Prevalence (%)", sep="")
 
-Fig_Ext_G_Cold <- ggplot() + 
-  geom_point(data=df.pa.gut.C, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
+Fig_S5C_G <- ggplot() + 
+  geom_point(data=df.pa.gut.ast.3y5y, aes(x=X_P_Change, y=Y_P_Change, color=Phylum, size=prevalence), alpha=0.75) + 
   xlab(x_lab) + ylab(y_lab) + 
   scale_color_manual(values = cbPalette) +
-  scale_y_continuous(limits=c(-37,60), expand = c(0,0))+
-  scale_x_continuous(limits=c(-37,60), expand = c(0,0))+
-  annotate("segment", x = -37, xend = 60, y = -37, yend = 60, colour = "red", size=0.5) + ggtitle("Gut")
-Fig_Ext_G_Cold
+  scale_y_continuous(limits=c(-32,60), expand = c(0,0))+
+  scale_x_continuous(limits=c(-32,60), expand = c(0,0))+
+  annotate("segment", x = -32, xend = 60, y = -32, yend = 60, colour = "red", linewidth=0.25) + ggtitle("Gut")
+Fig_S5C_G
+```
+Median change in prevalence of an OTU 
+```{r} 
+# Asthma
+summary(df.pa.gut.ast.3y5y$X_P_Change)
+# No Asthma
+summary(df.pa.gut.ast.3y5y$Y_P_Change)
 ```
 
-**Permutation test for Prevalence Trajectory analysis - See Permutation_Tests_PrevTrajectories directory for source code**
+**Permutation test for Prevalence Trajectory analysis**
 ```{r} 
-source("Permutation_Tests_PrevTrajectories/14_Colds_Gut.R")
+Res_ast3y5y_G <- perm_func_dfs(df.pa.gut.ast.3y5y, change_3m1y_pa_G_sdf, 
+                           variable = "asthma_3y_5y", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa_G)
 
 # Test output
-# Res_per_taxa_Cold_G - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
-original_wilcox_Cold_G # Overall significance test
+Res_ast3y5y_G$global_res # Overall significance test; p_value = later in healthy
+# Res_per_ast3y5y_G - p-value assigned to each taxa
+Res_per_ast3y5y_G <- Res_ast3y5y_G$per_taxa_res
 ```
 
-### Compile & save all prevalence trajectory results
+```{r, include=FALSE}
+# Save prevalence trajectory scatter plots, remove axis titles and re-add later
+
+## saving a legend (all will be the same)
+legend_PT <- plot_grid(get_legend(Fig_S5A_N), ncol = 1)
+tiff(file = paste0(path, "Figures/Fig_S5AC_LegendPrevTraj.tiff"), width = 500, height = 1000, units = "px", res = 300) 
+legend_PT
+dev.off()
+
+;Fig_S5AC <- plot_grid(Fig_S5A_N + theme(legend.position = "none"), Fig_S5A_G + theme(legend.position = "none"),
+                      Fig_S5C_N + theme(legend.position = "none"), Fig_S5C_G + theme(legend.position = "none"),
+                      ncol = 2, labels = c("A", "", "C", ""))
+Fig_S5AC
+
+tiff(file = paste0(path, "Figures/Fig_S5A_S5C_PreTCoAsthma3y5y.tiff"), width = 2500, height = 2500, units = "px", res = 300) 
+Fig_S5AC
+dev.off()
+```
+
+
+# Figure S5B & S5D - Richness trajectories associated with asthma at 5 years and asthma at 3 years that persists to 5 years
+
+**Similar to scripts for main Figure 2C-2F, but just select asthma at 5 years and 3 years that persists to 5 years**
+Also see Fig_2.Rmd for exact p-values in 'Wilcoxon_Res_Fig2D_2F_and_SuppTraj_ColPat_Richness.csv'
+
+### Microbiota Trajectory data subsets
 ```{r}
-# compile & save results for individ taxa
+# Main metadata variables to test
+Main_vars_Traj <- c("asthma_5y", "asthma_3y_5y") 
 
-# saving everything to output
-Per_test_df_ls <- list(Res_per_taxa_ast_N, Res_per_taxa_BF_N, Res_per_taxa_ast5y_N, 
-                       Res_per_taxa_ast3y5y_N, Res_per_taxa_wheeze_N, Res_per_taxa_atopy_N, Res_per_taxa_Cold_N, 
-                       Res_per_taxa_ast_G, Res_per_taxa_BF_G, Res_per_taxa_ast5y_G, Res_per_taxa_ast3y5y_G, 
-                       Res_per_taxa_wheeze_G, Res_per_taxa_atopy_G, Res_per_taxa_Cold_G)
-names(Per_test_df_ls) <-  c("Ast3y_Nasal", "BF_Nasal", "Ast5y_Nasal", "Ast3y_5y_Nasal", "Wheeze_Nasal", "Atopy_Nasal", "Cold_Nasal", 
-                            "Ast3y_Gut", "BF_Gut", "Ast5y_Gut", "Ast3y_5y_Gut", "Wheeze_Gut", "Atopy_Gut", "Cold_Gut")
-
-# Save as an overall rds file in Output/PermTests
-saveRDS(Per_test_df_ls, "Output/PermTests/ALL_Permutation_PrevTraj_Res.rds")
-
-# Save as individual csv files for others 
-outpath_Pt1 <- "Output/PermTests/Permutation_PrevTraj_Res"
-outfiles <- paste(outpath_Pt1, names(Per_test_df_ls), ".csv", sep = "_")
-
-mapply(function(x, y) write.csv(x, file=y, row.names = FALSE, quote = FALSE), x=Per_test_df_ls, y=outfiles, SIMPLIFY = FALSE)
+### List of Trajectory summary variables to be used for these analysis
+NG_summary <- c("Observed_N1y3m", "Observed_G1y3m", "Observed_N3m", "Observed_N1y", "Observed_G1y","Observed_G3m") 
 ```
 
+```{r} 
+NG_Traj_sdf <- merge( subset(Traj_data_ls$Trajectories_Nasal_to181_Gut_at182, select = NG_summary),
+                      subset(Traj_data_ls$Metadata, select = Main_vars_Traj), 
+                      by="row.names" )
+```
 
-# Figure S5 - Upset plots for overlap among taxa identified as significantly later colonizers in the 'healthy' group
+**Datasets for plots - melt & split -  Trajectories and Individual time-points**
 ```{r}
-Per_test_df_ls_Sig <- lapply(Per_test_df_ls, function(x) {subset(x, p_value < 0.05)})
-lapply(Per_test_df_ls_Sig, function(x) {nrow(x)}) ## nrow of each dataframe is the number of significant late taxa with p<0.05 - of the 170 testable Nasal taxa and 115 gut taxa (not including the Strep.40 present in 100% of samples)
+NG_Traj_sdf_m <- melt(NG_Traj_sdf, measure.vars = NG_summary)
+NG_Traj_sdf_m$Dataset <- ifelse(grepl("_G", NG_Traj_sdf_m$variable), "Gut", "Nasal")
+NG_Traj_sdf_m$Dataset <- factor(NG_Traj_sdf_m$Dataset, levels = c("Nasal", "Gut"))
 
-Per_test_df_ls_Sig_0.01 <- lapply(Per_test_df_ls, function(x) {subset(x, p_value < 0.01)})
-lapply(Per_test_df_ls_Sig_0.01, function(x) {nrow(x)}) ## nrow of each dataframe is the number of significant late taxa with p<0.05 - of the 170 testable taxa (not including the Strep.40 present in 100% of samples)
+Single_tp <- c("Observed_N3m", "Observed_G3m", "Observed_N1y", "Observed_G1y")
+Trajs <- c("Observed_N1y3m", "Observed_G1y3m")
+
+## split data for plots
+NG_Traj_sdf_m_Trajs <- subset(NG_Traj_sdf_m, variable %in% Trajs)
+
+NG_Traj_sdf_m_Tp <- subset(NG_Traj_sdf_m, variable %in% Single_tp)
+NG_Traj_sdf_m_Tp$Visit <- ifelse(grepl("3", NG_Traj_sdf_m_Tp$variable), "3-Month", "1-Year")
+NG_Traj_sdf_m_Tp$Visit <- factor(NG_Traj_sdf_m_Tp$Visit, levels = c("3-Month", "1-Year"))
 ```
 
-## Nasal, Overlap in significant late colonizers between groups (Fig S5B & S5D)
-- p value < 0.05 
-```{r} 
-Per_test_df_ls_Sig_N <- Per_test_df_ls_Sig[1:7] # nasal dataframes
+**Asthma 5y, Figure S5B**
+```{r, warning=FALSE}
+NG_Traj_sdf_m_Trajs_Ast5y <- subset(NG_Traj_sdf_m_Trajs, asthma_5y!="Possible") 
 
-listInput <- list(Asthma = row.names(Per_test_df_ls_Sig_N$Ast3y_Nasal), Colds = row.names(Per_test_df_ls_Sig_N$Cold_Nasal), 
-                  Wheeze = row.names(Per_test_df_ls_Sig_N$Wheeze_Nasal), Atopy = row.names(Per_test_df_ls_Sig_N$Atopy_Nasal), 
-                  BF = row.names(Per_test_df_ls_Sig_N$BF_Nasal))
+Fig_S5B <- ggplot(NG_Traj_sdf_m_Trajs_Ast5y, aes(x=asthma_5y, y=value, group=asthma_5y)) + 
+  facet_wrap(~Dataset, ncol = 1) + 
+  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black") + 
+  scale_y_continuous(expand=c(0,0)) + coord_cartesian(ylim = c(-150, 200))  + 
+  theme(axis.text = element_text(size=9), legend.position = "none", strip.text.x = element_text(face = "bold")) + 
+  labs(y="Richness Trajectory", x="Asthma at 5 Years") + scale_color_manual(values = Trj_cols) +
+  geom_signif(color="black", comparisons = list(c("No", "Yes")), 
+              test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+              map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) 
+Fig_S5B
+```
 
-tiff(file = "Figures/Fig_S5B_N_p0.05_upset.tiff", width = 1200, height = 1200, units = "px", res = 300) 
-upset(fromList(listInput), keep.order = T, nsets = 6, sets = rev(c("BF", "Asthma", "Wheeze", "Colds", "Atopy"))) 
+**Asthma 3y to 5y, Figure S5D**
+```{r, warning=FALSE}
+NG_Traj_sdf_m_Trajs_Ast3y5y <- subset(NG_Traj_sdf_m_Trajs, !is.na(asthma_3y_5y)) 
+
+Fig_S5D <- ggplot(NG_Traj_sdf_m_Trajs_Ast3y5y, aes(x=asthma_3y_5y, y=value, group=asthma_3y_5y)) + 
+  facet_wrap(~Dataset, ncol= 1) + 
+  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) +
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + 
+  scale_y_continuous(expand=c(0,0)) + coord_cartesian(ylim = c(-150, 200))  + 
+  theme(axis.text = element_text(size=9), legend.position = "none", strip.text.x = element_text(face = "bold")) + 
+  labs(y="Richness Trajectory", x="Asthma, 3 & 5 Years") + scale_color_manual(values = Trj_cols) +
+  geom_signif(color="black", comparisons = list(c("No", "Yes")), 
+              test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+              map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) 
+Fig_S5D
+```
+
+```{r, warning=FALSE, include=FALSE} 
+# Save Richness Plots for Supplementary
+tiff(file = paste0(path, "Figures/Fig_S5B_5yAsth_RichTraj.tiff"), width = 700, height = 1200, units = "px", res = 300)
+Fig_S5B
 dev.off()
 
-df_listInput_1 <- fromList2(listInput)
-# checking total overlap with Asthma for each group
-sum(df_listInput_1$BF == 1 & df_listInput_1$Asthma == 1) # 17
-sum(df_listInput_1$Wheeze == 1 & df_listInput_1$Asthma == 1) # 17
-sum(df_listInput_1$Colds == 1 & df_listInput_1$Asthma == 1) # 12
-sum(df_listInput_1$Atopy == 1 & df_listInput_1$Asthma == 1) # 3 
-```
-- p value < 0.01 
-```{r} 
-Per_test_df_ls_Sig_0.01N <- Per_test_df_ls_Sig_0.01[1:7] # nasal dataframes
-
-listInput2 <- list(Asthma = row.names(Per_test_df_ls_Sig_0.01N$Ast3y_Nasal), Colds = row.names(Per_test_df_ls_Sig_0.01N$Cold_Nasal), 
-                  Wheeze = row.names(Per_test_df_ls_Sig_0.01N$Wheeze_Nasal), Atopy = row.names(Per_test_df_ls_Sig_0.01N$Atopy_Nasal), 
-                  BF = row.names(Per_test_df_ls_Sig_0.01N$BF_Nasal))
-
-
-tiff(file = "Figures/Fig_S5D_N_p0.01_upset.tiff", width = 1200, height = 1200, units = "px", res = 300) 
-upset(fromList(listInput2), keep.order = T, sets = rev(c("BF", "Asthma", "Wheeze", "Colds", "Atopy")), nsets = 6)
+tiff(file = paste0(path, "Figures/Fig_S5D_3y5yAsth_RichTraj.tiff"), width = 700, height = 1200, units = "px", res = 300)
+Fig_S5D
 dev.off()
-
-df_listInput2 <- fromList2(listInput2) # IDs of overlap taxa
 ```
-
-## Gut, Overlap in significant taxa between groups (Fig S5C & S5E)
-- p value < 0.05
-```{r} 
-Per_test_df_ls_Sig_G <- Per_test_df_ls_Sig[8:14] # gut dataframes
-
-listInputG <- list(Asthma = row.names(Per_test_df_ls_Sig_G$Ast3y_Gut), Colds = row.names(Per_test_df_ls_Sig_G$Cold_Gut), 
-                  Wheeze = row.names(Per_test_df_ls_Sig_G$Wheeze_Gut), Atopy = row.names(Per_test_df_ls_Sig_G$Atopy_Gut), 
-                  BF = row.names(Per_test_df_ls_Sig_G$BF_Gut))
-
-tiff(file = "Figures/Fig_S5C_G_p0.05_upset.tiff", width = 1200, height = 1200, units = "px", res = 300) 
-upset(fromList(listInputG), keep.order = T, nsets = 6, sets = rev(c("BF", "Asthma", "Wheeze", "Colds", "Atopy"))) 
-dev.off()
-
-df_listInputG_1 <- fromList2(listInputG)
-# checking total overlap with Asthma for each group
-sum(df_listInputG_1$BF == 1 & df_listInputG_1$Asthma == 1) # 10
-sum(df_listInputG_1$Wheeze == 1 & df_listInputG_1$Asthma == 1) # 1
-sum(df_listInputG_1$Colds == 1 & df_listInputG_1$Asthma == 1) # 3
-sum(df_listInputG_1$Atopy == 1 & df_listInputG_1$Asthma == 1) # 0
-```
-- p value < 0.01 
-```{r} 
-Per_test_df_ls_Sig0.01G <- Per_test_df_ls_Sig_0.01[8:14] # gut dataframes
-
-listInput2G <- list(Asthma = row.names(Per_test_df_ls_Sig0.01G$Ast3y_Gut), Colds = row.names(Per_test_df_ls_Sig0.01G$Cold_Gut), 
-                  Wheeze = row.names(Per_test_df_ls_Sig0.01G$Wheeze_Gut), Atopy = row.names(Per_test_df_ls_Sig0.01G$Atopy_Gut), 
-                  BF = row.names(Per_test_df_ls_Sig0.01G$BF_Gut))
-
-tiff(file = "Figures/Fig_S5C_G_p0.01_upset.tiff", width = 1200, height = 1200, units = "px", res = 300) 
-upset(fromList(listInput2G), keep.order = T, sets = rev(c("BF", "Asthma", "Wheeze", "Colds", "Atopy")), nsets = 6)
-dev.off()
-
-df_listInput2G <- fromList2(listInput2G) # IDs of overlap taxa
-```
-
-

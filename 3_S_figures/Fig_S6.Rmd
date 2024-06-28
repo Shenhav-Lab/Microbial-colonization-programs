@@ -1,5 +1,5 @@
 ---
-title: "Feature importance plots for the prediction of asthma at 3 years using nasal and gut microbiome trajectories coupled with milk components (Figure S6)"
+title: "Figure S6. Overlap in associations between microbiota prevalence trajectories and breastfeeding and respiratory phenotypes."
 ---
 
 
@@ -13,301 +13,456 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r, warning=FALSE, message=FALSE}
 R.version.string
 library(phyloseq); packageVersion('phyloseq')
-library(ggplot2); packageVersion('ggplot2')
-library(cowplot); packageVersion('cowplot')
-library(vegan); packageVersion('vegan')
 library(tidyr); packageVersion('tidyr')
 library(reshape2); packageVersion('reshape2')
 library(dplyr); packageVersion('dplyr')  
-library(lmPerm); packageVersion('lmPerm')
 library(UpSetR); packageVersion('UpSetR')
-library(ComplexHeatmap); packageVersion('ComplexHeatmap')
-library(circlize); packageVersion('circlize')
-library(gbm); library('MASS')
-library(pROC); library('plotROC')
-source("Preprocessing/Functions.R")
+library(here)
+
+source(paste0(here::here(), "/Functions.R"))
 ```
 
-### Nasal Microbiota colonization patterns and human milk components
+### Microbiota Trajectory data subsets used
 ```{r}
-Nasal_df <- read.csv("Nasal_DivChange_ColPat_N1545_Wide_Summarized.csv", row.names = 1)
+Nasal_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Nasal_Trajectory_Subset.rds")) # Prevalence dataset
+
+Gut_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Gut_Trajectory_Subset.rds")) # Prevalence dataset
 ```
 
-#ML predictive model - nasal and human milk components
 ```{r}
-phenotype_labels <- c()
+# splitting by timepoint for downstream analyses
+N.pa.3m <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "3 Months")
+N.pa.1y <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "1 Year")
 
-for(i in 1:length(Nasal_df$asthma_3y)){
-  
-  if(is.na(Nasal_df$asthma_3y[i]) == "TRUE")
-    phenotype_labels[i] = NA
-  else{
-    
-    if(Nasal_df$asthma_3y[i] == "No")
-      phenotype_labels[i] = 0
-    if(Nasal_df$asthma_3y[i] == "Probable")
-      phenotype_labels[i] = 1
-    if(Nasal_df$asthma_3y[i] == "Possible")
-      phenotype_labels[i] = 0
-  }
-}
-
-wilx_p_val <- c()
-
-for(i in 1:dim(Nasal_df)[2]){
-  
-  if( sum(na.omit(as.numeric(Nasal_df[which(phenotype_labels == 1), i]))) != 0) {
-    
-    tmp_wilx <- wilcox.test(as.numeric(Nasal_df[which(phenotype_labels == 1), i]), 
-                            as.numeric(Nasal_df[which(phenotype_labels == 0), i]))
-    wilx_p_val[i] <- tmp_wilx$p.value
-    
-  }
-}
+G.pa.3m <- subset_samples(Gut_3M1Y_pa_filt, Visit == "3 Months")
+G.pa.1y <- subset_samples(Gut_3M1Y_pa_filt, Visit == "1 Year")
+```
 
 
-feature_ids <- which(wilx_p_val <= 0.05)
+# Prevalence Trajectory Coordinate System & Permutation tests for Figure S6 
+**similar scripts compared to main Figure 3**
 
-features_to_remove<- which(colnames(Nasal_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
- "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
- "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
-  
+## Nasal - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
+```{r} 
+## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
+N_3m_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.3m), "matrix"))), row.names=sample_data(N.pa.3m)$CHILDid)
+N_1y_otu <- data.frame(as.data.frame(t(as(otu_table(N.pa.1y), "matrix"))), row.names=sample_data(N.pa.1y)$CHILDid)
 
-if(length(features_to_remove) > 0)
-  feature_ids_2 <- feature_ids[-features_to_remove]
-if(length(features_to_remove) == 0)
-  feature_ids_2 <- feature_ids
+N_3m_otu <- N_3m_otu[order(row.names(N_3m_otu)),]
+N_1y_otu <- N_1y_otu[order(row.names(N_1y_otu)),]
 
-View(data.frame(c(1:length(feature_ids_2)), colnames(Nasal_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
-ids_to_remove <- which(is.na(phenotype_labels))
+## Checking - colnames and Childid's are in the same order? Yes - good - can move forward
+identical(colnames(N_3m_otu), colnames(N_1y_otu))
+identical(row.names(N_1y_otu), row.names(N_3m_otu))
 
-#train-test split
-train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
-table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
+## 1 Year minus 3 Month Prevalence For each Taxa
+change_3m1y_pa <- N_1y_otu - N_3m_otu # -1 = present at 3m not 1y, 1= present at 1y not 3m, 0=either present at both or neither timpoint
+dim(change_3m1y_pa) # Same order as original physeq obj
 
-#gbm
-Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
-                 ,data = Nasal_df[-ids_to_remove,feature_ids_2][train_samples,],
-                 distribution = "adaboost",n.trees = 10000,
-                 shrinkage = 0.01, interaction.depth = 4)
-Boston.boost
+# Sample data to merge with dataset
+sdf_toAdd <- sample_data(N.pa.1y)[order(sample_data(N.pa.1y)$CHILDid),]
+sdf_3m <- sample_data(N.pa.3m)[order(sample_data(N.pa.3m)$CHILDid),]
+## check that it's in the same order as change_3m1y_pa
+identical(row.names(change_3m1y_pa), sdf_toAdd$CHILDid) 
+identical(row.names(change_3m1y_pa), sdf_3m$CHILDid) 
 
-View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
-Variable_Importance <- summary(Boston.boost)
-write.csv(Variable_Importance, "Variable_Importance_Nasal_Milk_trajectories_milk_comp.csv")
-#Prediction on Test Set
-##We will compute the Test Error as a function of number of Trees
-n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
-#Generating a Prediction matrix for each Tree
-predmatrix<-predict(Boston.boost,Nasal_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
-test.roc <- c()
+### same order so just merge data with sample metadata using data.frame
+change_3m1y_pa_sdf <- data.frame(change_3m1y_pa, sdf_toAdd, RE_virus_3m = sdf_3m$RE_Virus) # Using 1 year sdf for variables (will be same for 3m and 1y for almost all) - but also adding RE virus at 3 months as "RE_virus_3m". Note that "RE_Virus" is the RE virus at 1 year.
 
-for(k in 1:dim(predmatrix)[2]){
+N_taxa <- ncol(change_3m1y_pa) # number of taxa, to use in downstream code
+N_subj <- nrow(change_3m1y_pa) # number of subjects, to use in downstream code
+```
+Objects used for Nasal trajectory plots: change_3m1y_pa_sdf, Nasal_3M1Y_pa_filt, N_taxa, N_subj 
 
-  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
-                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
-  test.roc[k] = tmp_roc$auc
+## Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
+```{r} 
+## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
+G_3m_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.3m), "matrix"))), row.names=sample_data(G.pa.3m)$CHILDid)
+G_1y_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.1y), "matrix"))), row.names=sample_data(G.pa.1y)$CHILDid)
 
-}
-boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
-        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
+G_3m_otu <- G_3m_otu[order(row.names(G_3m_otu)),]
+G_1y_otu <- G_1y_otu[order(row.names(G_1y_otu)),]
 
-#Calculating The Mean squared Test Error
-#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
-#Plotting the test error vs number of trees
-plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
-which(test.roc == max(test.roc))
-k = which(test.roc == max(test.roc))
-roc_curves_nasal_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
-colnames(roc_curves_nasal_microbes) <- c("True","Predicted")
-auc(response = roc_curves_nasal_microbes$True, predictor = roc_curves_nasal_microbes$Predicted) 
-write.csv(roc_curves_nasal_microbes, file = "roc_curves_Nasal_trajectories.csv")
+## Checking - colnames and Childid's are in the same order? Yes - good - can move forward
+identical(colnames(G_3m_otu), colnames(G_1y_otu))
+identical(row.names(G_3m_otu), row.names(G_1y_otu))
 
-Importance_Nasal_Milk <- read.csv(file="Variable_Importance_Nasal_Milk_trajectories_milk_comp.csv", 
-                             row.names = 1)
-colnames(Importance_Nasal_Milk) <- c("var", "Importance")
+## 1 Year minus 3 Month Prevalence For each Taxa
+change_3m1y_pa_G <- G_1y_otu - G_3m_otu # -1 = present at 3m not 1y, 1= present at 1y not 3m, 0=either present at both or neither timpoint
+dim(change_3m1y_pa_G) # Same order as original physeq obj
+
+sdf_toAdd <- sample_data(G.pa.1y)[order(sample_data(G.pa.1y)$CHILDid),]
+sdf_3m <- sample_data(G.pa.3m)[order(sample_data(G.pa.3m)$CHILDid),]
+## check that it's in the same order as change_3m1y_pa
+identical(row.names(change_3m1y_pa_G), sdf_toAdd$CHILDid) # order matches
+identical(row.names(change_3m1y_pa_G), sdf_3m$CHILDid) # order matches
+
+### same order so just merge data with sample metadata using data.frame
+change_3m1y_pa_G_sdf <- data.frame(change_3m1y_pa_G, sdf_toAdd, RE_virus_3m = sdf_3m$RE_Virus) # Using 1 year sdf for variables but also adding RE virus at 3 months as "RE_virus_3m". Note that "RE_Virus" is the RE virus at 1 year
+
+N_taxa_G <- ncol(change_3m1y_pa_G) # number of taxa, to use in downstream code
+N_subj_G <- nrow(change_3m1y_pa_G) # number of subjects, to use in downstream code
+```
+Objects used for gut trajectory plots: change_3m1y_pa_G_sdf, Gut_3M1Y_pa_filt, N_taxa_G, N_subj_G 
 
 
-Importance_Nasal_Milk_sub <- subset(Importance_Nasal_Milk, Importance > 0.1) # only care about most important microbes right?
-Importance_Nasal_Milk_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Nasal_Milk_sub$var)
-Importance_Nasal_Milk_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Nasal_Milk_sub$var)
+#### Extra variables - Asthma at 3 years that persists to 5 years vs. no asthma at 3 and no asthma at 5 years and atopy without wheeze (just used in Figure S6B and S6C)
+```{r} 
+# want probable asthma at 3 years, and probable or possible at 5 years. Those missing 5 year or 3 year asthma data will be NA for this variable
+change_3m1y_pa_sdf$asthma_3y_5y <- ifelse(change_3m1y_pa_sdf$asthma_3y == "Probable" & 
+                                            change_3m1y_pa_sdf$asthma_5y %in% c("Probable", "Possible"), "Yes", 
+                                          ifelse(change_3m1y_pa_sdf$asthma_3y == "No" & 
+                                            change_3m1y_pa_sdf$asthma_5y == "No", "No", NA))
+table(change_3m1y_pa_sdf$asthma_3y_5y)
 
-Importance_Nasal_Milk_sub2 <- Importance_Nasal_Milk_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
+# want probable asthma at 3 years, and probable or possible at 5 years. Those missing 5 year or 3 year asthma data will be NA for this variable  
+change_3m1y_pa_G_sdf$asthma_3y_5y <- ifelse(change_3m1y_pa_G_sdf$asthma_3y == "Probable" & 
+                                            change_3m1y_pa_G_sdf$asthma_5y  %in% c("Probable", "Possible"), "Yes", 
+                                          ifelse(change_3m1y_pa_G_sdf$asthma_3y == "No" & 
+                                            change_3m1y_pa_G_sdf$asthma_5y == "No", "No", NA))
 
-ids <- unique(Importance_Nasal_Milk_sub2$'Log2change')
+table(change_3m1y_pa_G_sdf$asthma_3y_5y)
 
-Importance_Nasal_Milk_sub2_new <- Importance_Nasal_Milk_sub2[Importance_Nasal_Milk_sub2$'Log2change' == ids[1],]
+# Atopy without wheeze
+## Nasal
+change_3m1y_pa_sdf$Wheeze_atopy_Traj <- ifelse(!is.na(change_3m1y_pa_sdf$WheezeTraj) & !is.na(change_3m1y_pa_sdf$atopy3y), paste(change_3m1y_pa_sdf$WheezeTraj, change_3m1y_pa_sdf$atopy3y, sep = ", Atopy "), NA) 
 
-for(i in 2:length(ids)){
-  
-  tmp = Importance_Nasal_Milk_sub2[Importance_Nasal_Milk_sub2$'Log2change' == ids[i],]
-  Importance_Nasal_Milk_sub2_new <- rbind(Importance_Nasal_Milk_sub2_new, tmp[1,])
-}
+## Gut
+change_3m1y_pa_G_sdf$Wheeze_atopy_Traj <- ifelse(!is.na(change_3m1y_pa_G_sdf$WheezeTraj) & !is.na(change_3m1y_pa_G_sdf$atopy3y), paste(change_3m1y_pa_G_sdf$WheezeTraj, change_3m1y_pa_G_sdf$atopy3y, sep = ", Atopy "), NA) 
+# Focusing on:  "Persistent, Atopy No"; "Never/infrequent, Atopy Yes"; "Never/infrequent, Atopy No"
+```
 
-Importance_Nasal_Milk_sub2 <- Importance_Nasal_Milk_sub2_new
-df.pa.nasal.C1_sub <- subset(df.pa.nasal.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
-df.pa.nasal.C1_sub$OTU <- row.names(df.pa.nasal.C1_sub)
 
-Importance_Nasal_Milk_sub2$OTU <- Importance_Nasal_Milk_sub2$`Log2change`
-Importance_Nasal_Milk_sub3 <- left_join(Importance_Nasal_Milk_sub2, df.pa.nasal.C1_sub, by="OTU")
-rownames(Importance_Nasal_Milk_sub3) <- rownames(Importance_Nasal_Milk_sub2)
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
+#### Nasal - Breastfeeding
+```{r} 
+X <- subset(change_3m1y_pa_sdf, BF_status_3m_sampling == "No BM")
+Y <- subset(change_3m1y_pa_sdf, BF_status_3m_sampling == "Exclusive")
 
-Importance_Nasal_Milk_sub3 <- Importance_Nasal_Milk_sub3[order(-Importance_Nasal_Milk_sub3$Importance),]
-Importance_Nasal_Milk_sub3$taxonomy.Family[is.na(Importance_Nasal_Milk_sub3$taxonomy.Family)] <- "_milk"
-Importance_Nasal_Milk_sub3$taxonomy.Phylum[is.na(Importance_Nasal_Milk_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
-Importance_Nasal_Milk_sub3$prevalence[is.na(Importance_Nasal_Milk_sub3$prevalence)] <- 10
-Importance_Nasal_Milk_sub3 <- head(Importance_Nasal_Milk_sub3, 20)
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.BF <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1],
+                             taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) # Taxonomy order actually maintained compared to physeq obj Nasal_3M1Y_pa_filt so can merge this way. prevalence column is the total prevalence so divided by total N across both timepoints (subject # x 2). 
 
-Importance_Nasal_Milk_sub3_Nasal <- subset(Importance_Nasal_Milk_sub3, Trajectory == "Prevalence Trajectory")
-Combined_importance_N_M <- ggplot(Importance_Nasal_Milk_sub3_Nasal,aes(y=reorder(OTU, Importance),x=Importance))+
-  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
-  scale_color_manual(values = cbPalette) + labs(x="Importance")
+# difference in change
+df.pa.nasal.BF$pa.change.diff <- df.pa.nasal.BF$Y_P_Change - df.pa.nasal.BF$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis - See 'Functions.R' for perm_func_dfs function**
+```{r} 
+Res_BF_N <- perm_func_dfs(df.pa.nasal.BF, change_3m1y_pa_sdf, 
+                           variable = "BF_status_3m_sampling", Group_X = "No BM", Group_Y = "Exclusive", N_taxa = N_taxa)
+# Test output
+Res_BF_N$global_res # Overall significance test
+# Res_per_taxa_BF_N - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_BF_N <- Res_BF_N$per_taxa_res
+```
 
-tiff(file = "Fig_5_N_M_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Combined_importance_N_M
+#### Gut - Breastfeeding
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "No BM")
+Y <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "Exclusive")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.BF <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) # Taxonomy actually maintained compared to physeq obj, great
+
+# difference in change
+df.pa.gut.BF$pa.change.diff <- df.pa.gut.BF$Y_P_Change - df.pa.gut.BF$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_BF_G <- perm_func_dfs(df.pa.gut.BF, change_3m1y_pa_G_sdf, 
+                           variable = "BF_status_3m_sampling", Group_X = "No BM", Group_Y = "Exclusive", N_taxa = N_taxa_G)
+
+# Test output
+Res_BF_G$global_res # Overall significance test
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_BF_G <- Res_BF_G$per_taxa_res
+```
+
+#### Nasal - Asthma at 3 years
+```{r} 
+X <- subset(change_3m1y_pa_sdf, asthma_3y == "Probable")
+Y <- subset(change_3m1y_pa_sdf, asthma_3y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.ast <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.ast$pa.change.diff <- df.pa.nasal.ast$Y_P_Change - df.pa.nasal.ast$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_ast_N <- perm_func_dfs(df.pa.nasal.ast, change_3m1y_pa_sdf, 
+                           variable = "asthma_3y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa)
+
+# Overall significance test for nasal, asthma at 3 years test
+Res_ast_N$global_res # sig
+# Res_per_taxa_ast_N - p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_ast_N <- Res_ast_N$per_taxa_res
+```
+
+#### Gut - Asthma at 3 years
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, asthma_3y == "Probable")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_3y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.ast <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.ast$pa.change.diff <- df.pa.gut.ast$Y_P_Change - df.pa.gut.ast$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_ast_G <- perm_func_dfs(df.pa.gut.ast, change_3m1y_pa_G_sdf, 
+                           variable = "asthma_3y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa_G)
+# Test output
+Res_ast_G$global_res # Overall significance test
+# p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_ast_G <- Res_ast_G$per_taxa_res
+```
+
+#### Nasal - Asthma at 5 years 
+```{r} 
+X <- subset(change_3m1y_pa_sdf, asthma_5y == "Probable")
+Y <- subset(change_3m1y_pa_sdf, asthma_5y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.ast5 <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.ast5$pa.change.diff <- df.pa.nasal.ast5$Y_P_Change - df.pa.nasal.ast5$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_ast5y_N <- perm_func_dfs(df.pa.nasal.ast5, change_3m1y_pa_sdf, 
+                           variable = "asthma_5y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa)
+# Test output
+Res_ast5y_N$global_res # Overall significance test; p_value = later in healthy
+# Res_per_taxa_ast5y_N - p-value assigned to each taxa
+Res_per_taxa_ast5y_N <- Res_ast5y_N$per_taxa_res
+```
+
+#### Gut - Asthma at 5 years
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, asthma_5y == "Probable")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_5y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.ast5 <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.ast5$pa.change.diff <- df.pa.gut.ast5$Y_P_Change - df.pa.gut.ast5$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_ast5y_G <- perm_func_dfs(df.pa.gut.ast5, change_3m1y_pa_G_sdf, 
+                           variable = "asthma_5y", Group_X = "Probable", Group_Y = "No", N_taxa = N_taxa_G)
+# Test output
+Res_ast5y_G$global_res # Overall significance test; p_value = later in healthy
+# Res_per_taxa_ast5y_G - p-value assigned to each taxa
+Res_per_taxa_ast5y_G <- Res_ast5y_G$per_taxa_res
+```
+
+#### Nasal - Asthma at 3 years that persists to 5 years
+```{r} 
+X <- subset(change_3m1y_pa_sdf, asthma_3y_5y == "Yes")
+Y <- subset(change_3m1y_pa_sdf, asthma_3y_5y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.ast.3y5y <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.ast.3y5y$pa.change.diff <- df.pa.nasal.ast.3y5y$Y_P_Change - df.pa.nasal.ast.3y5y$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_3y5yast_N <- perm_func_dfs(df.pa.nasal.ast.3y5y, change_3m1y_pa_sdf, 
+                           variable = "asthma_3y_5y", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa)
+
+# Test output
+Res_3y5yast_N$global_res # Overall significance test
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_ast3y5y_N <- Res_3y5yast_N$per_taxa_res
+```
+
+### Gut - Asthma at 3 years that persists to 5 years
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, asthma_3y_5y == "Yes")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_3y_5y == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.ast.3y5y <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.ast.3y5y$pa.change.diff <- df.pa.gut.ast.3y5y$Y_P_Change - df.pa.gut.ast.3y5y$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_3y5yast_G <- perm_func_dfs(df.pa.gut.ast.3y5y, change_3m1y_pa_G_sdf, 
+                           variable = "asthma_3y_5y", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa_G)
+
+# Test output
+ # Overall significance test
+Res_3y5yast_G$global_res
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_ast3y5y_G <- Res_3y5yast_G$per_taxa_res
+```
+
+#### Nasal, Atopy at 3 years without Persistent Wheeze vs. no Atopy or Wheeze 
+```{r} 
+X <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy Yes")
+Y <- subset(change_3m1y_pa_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.NoWhz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.NoWhz.atopy$pa.change.diff <- df.pa.nasal.NoWhz.atopy$Y_P_Change - df.pa.nasal.NoWhz.atopy$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_atopy_N <- perm_func_dfs(df.pa.nasal.NoWhz.atopy, change_3m1y_pa_sdf, 
+                           variable = "Wheeze_atopy_Traj", 
+                           Group_X = "Never/infrequent, Atopy Yes", Group_Y = "Never/infrequent, Atopy No", N_taxa = N_taxa)
+ # Overall significance test
+Res_atopy_N$global_res
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_atopy_N <- Res_atopy_N$per_taxa_res
+```
+
+#### Gut, Atopy at 3 years without Persistent Wheeze vs. no Atopy or Wheeze
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy Yes")
+Y <- subset(change_3m1y_pa_G_sdf, Wheeze_atopy_Traj == "Never/infrequent, Atopy No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.NoWhz.atopy <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa.gut.NoWhz.atopy$pa.change.diff <- df.pa.gut.NoWhz.atopy$Y_P_Change - df.pa.gut.NoWhz.atopy$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_atopy_G <- perm_func_dfs(df.pa.gut.NoWhz.atopy, change_3m1y_pa_G_sdf, 
+                           variable = "Wheeze_atopy_Traj", 
+                           Group_X = "Never/infrequent, Atopy Yes", Group_Y = "Never/infrequent, Atopy No", N_taxa = N_taxa_G)
+ # Overall significance test
+Res_atopy_G$global_res
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_atopy_G <- Res_atopy_G$per_taxa_res
+```
+
+#### Nasal, Colds 0-3 months 
+```{r} 
+X <- subset(change_3m1y_pa_sdf, colds_0to3m == "Yes")
+Y <- subset(change_3m1y_pa_sdf, colds_0to3m == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.nasal.C1 <- data.frame(X_P_Change=colSums(X[1:N_taxa])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa])*100/dim(Y)[1], taxonomy=as(tax_table(Nasal_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Nasal_3M1Y_pa_filt)*100/(N_subj*2)) 
+
+# difference in change
+df.pa.nasal.C1$pa.change.diff <- df.pa.nasal.C1$Y_P_Change - df.pa.nasal.C1$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_Cold_N <- perm_func_dfs(df.pa.nasal.C1, change_3m1y_pa_sdf, 
+                           variable = "colds_0to3m", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa)
+ # Overall significance test
+Res_Cold_N$global_res
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_Cold_N <- Res_Cold_N$per_taxa_res
+```
+
+#### Gut, Colds 0-3 months
+```{r} 
+X <- subset(change_3m1y_pa_G_sdf, colds_0to3m == "Yes")
+Y <- subset(change_3m1y_pa_G_sdf, colds_0to3m == "No")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa.gut.C <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1], taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"), prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2))
+
+# difference in change
+df.pa.gut.C$pa.change.diff <- df.pa.gut.C$Y_P_Change - df.pa.gut.C$X_P_Change
+```
+**Permutation test for Prevalence Trajectory analysis**
+```{r} 
+Res_Cold_G <- perm_func_dfs(df.pa.gut.C, change_3m1y_pa_G_sdf, 
+                           variable = "colds_0to3m", Group_X = "Yes", Group_Y = "No", N_taxa = N_taxa_G)
+ # Overall significance test
+Res_Cold_G$global_res
+#  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_Cold_G <- Res_Cold_G$per_taxa_res
+```
+
+# Compile & save all prevalence trajectory results
+```{r}
+# saving everything to output
+Per_test_df_ls <- list(Res_per_taxa_ast_N, Res_per_taxa_BF_N, Res_per_taxa_ast5y_N, 
+                       Res_per_taxa_ast3y5y_N, Res_per_taxa_atopy_N, Res_per_taxa_Cold_N, 
+                       Res_per_taxa_ast_G, Res_per_taxa_BF_G, Res_per_taxa_ast5y_G, Res_per_taxa_ast3y5y_G, 
+                       Res_per_taxa_atopy_G, Res_per_taxa_Cold_G)
+names(Per_test_df_ls) <-  c("Ast3y_Nasal", "BF_Nasal", "Ast5y_Nasal", "Ast3y_5y_Nasal", "Atopy_Nasal", "Cold_Nasal", 
+                            "Ast3y_Gut", "BF_Gut", "Ast5y_Gut", "Ast3y_5y_Gut", "Atopy_Gut", "Cold_Gut")
+
+# Save as an overall rds file in Tables/PermTests/
+saveRDS(Per_test_df_ls, paste0(path, "Tables/PermTests/ALL_Permutation_PrevTraj_Res.rds"))
+```
+
+# Figure S6 - Upset plots for overlap among taxa identified as significantly later colonizers in the 'healthy' group
+```{r}
+# p-value = for later in healthy group
+Per_test_df_ls_Sig <- lapply(Per_test_df_ls, function(x) {subset(x, p_value < 0.05)})
+lapply(Per_test_df_ls_Sig, function(x) {nrow(x)}) ## nrow of each dataframe is the number of significant late taxa with p<0.05 - of the 170 testable Nasal taxa and 115 gut taxa (not including the Strep.40 present in 100% of samples)
+```
+
+## Nasal, Overlap in significant late colonizers between groups (Figure S6B)
+- p value < 0.05 
+```{r} 
+groups <- rev(c("BF", "Asthma, 3 Years", "Asthma, 3 & 5 Years", "Colds", "Atopy"))
+
+Per_test_df_ls_Sig_N <- Per_test_df_ls_Sig[1:6] # nasal dataframes
+
+listInput <- list("Asthma, 3 Years" = row.names(Per_test_df_ls_Sig_N$Ast3y_Nasal), 
+                  Colds = row.names(Per_test_df_ls_Sig_N$Cold_Nasal), 
+                  "Asthma, 3 & 5 Years" = row.names(Per_test_df_ls_Sig_N$Ast3y_5y_Nasal), 
+                  Atopy = row.names(Per_test_df_ls_Sig_N$Atopy_Nasal), 
+                  BF = row.names(Per_test_df_ls_Sig_N$BF_Nasal))
+
+tiff(file = paste0(path, "Figures/Fig_S5B_N_p0.05_upset.tiff"), width = 1300, height = 1200, units = "px", res = 300) 
+upset(fromList(listInput), keep.order = T, nsets = 6, sets = groups) 
 dev.off()
+
+df_listInput_1 <- fromList2(listInput)
+
+# checking total overlap with Asthma for each group
+sum(df_listInput_1$BF == 1 & df_listInput_1$`Asthma, 3 Years` == 1) # 17
+sum(df_listInput_1$`Asthma, 3 & 5 Years` == 1 & df_listInput_1$`Asthma, 3 Years` == 1) # 21
+sum(df_listInput_1$Colds == 1 & df_listInput_1$`Asthma, 3 Years` == 1) # 12
+sum(df_listInput_1$Atopy == 1 & df_listInput_1$`Asthma, 3 Years` == 1) # 3 
 ```
 
+## Gut, Overlap in significant taxa between groups (Figure S6C)
+- p value < 0.05
+```{r} 
+Per_test_df_ls_Sig_G <- Per_test_df_ls_Sig[7:12] # gut dataframes
 
-### Gut Microbiota colonization patterns and human milk components
-```{r}
-Gut_df <- read.csv("Gut_DivChange_ColPat_G555_Wide_Summarized.csv", row.names = 1)
-```
-
-#ML predictive model - gut and human milk components
-```{r}
-phenotype_labels <- c()
-
-for(i in 1:length(Gut_df$asthma_3y)){
-  
-  if(is.na(Gut_df$asthma_3y[i]) == "TRUE")
-    phenotype_labels[i] = NA
-  else{
-    
-    if(Gut_df$asthma_3y[i] == "No")
-      phenotype_labels[i] = 0
-    if(Gut_df$asthma_3y[i] == "Probable")
-      phenotype_labels[i] = 1
-    if(Gut_df$asthma_3y[i] == "Possible")
-      phenotype_labels[i] = 0
-  }
-}
-
-wilx_p_val <- c()
-
-for(i in 1:dim(Gut_df)[2]){
-  
-  if( sum(na.omit(as.numeric(Gut_df[which(phenotype_labels == 1), i]))) != 0) {
-    
-    tmp_wilx <- wilcox.test(as.numeric(Gut_df[which(phenotype_labels == 1), i]), 
-                            as.numeric(Gut_df[which(phenotype_labels == 0), i]))
-    wilx_p_val[i] <- tmp_wilx$p.value
-    
-  }
-}
+listInputG <- list("Asthma, 3 Years" = row.names(Per_test_df_ls_Sig_G$Ast3y_Gut), 
+                  Colds = row.names(Per_test_df_ls_Sig_G$Cold_Gut), 
+                  "Asthma, 3 & 5 Years" = row.names(Per_test_df_ls_Sig_G$Ast3y_5y_Gut), 
+                  Atopy = row.names(Per_test_df_ls_Sig_G$Atopy_Gut), 
+                  BF = row.names(Per_test_df_ls_Sig_G$BF_Gut))
 
 
-feature_ids <- which(wilx_p_val <= 0.05)
-
-features_to_remove<- which(colnames(Gut_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
- "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
- "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
-  
-
-if(length(features_to_remove) > 0)
-  feature_ids_2 <- feature_ids[-features_to_remove]
-if(length(features_to_remove) == 0)
-  feature_ids_2 <- feature_ids
-
-View(data.frame(c(1:length(feature_ids_2)), colnames(Gut_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
-ids_to_remove <- which(is.na(phenotype_labels))
-
-#train-test split
-train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
-table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
-
-#gbm
-Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
-                 ,data = Gut_df[-ids_to_remove,feature_ids_2][train_samples,],
-                 distribution = "adaboost",n.trees = 10000,
-                 shrinkage = 0.01, interaction.depth = 4)
-Boston.boost
-
-View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
-Variable_Importance <- summary(Boston.boost)
-write.csv(Variable_Importance, "Variable_Importance_Gut_Milk_trajectories_milk_comp.csv")
-#Prediction on Test Set
-##We will compute the Test Error as a function of number of Trees
-n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
-#Generating a Prediction matrix for each Tree
-predmatrix<-predict(Boston.boost,Gut_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
-test.roc <- c()
-
-for(k in 1:dim(predmatrix)[2]){
-
-  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
-                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
-  test.roc[k] = tmp_roc$auc
-
-}
-boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
-        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
-
-#Calculating The Mean squared Test Error
-#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
-#Plotting the test error vs number of trees
-plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
-which(test.roc == max(test.roc))
-k = which(test.roc == max(test.roc))
-roc_curves_gut_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
-colnames(roc_curves_gut_microbes) <- c("True","Predicted")
-auc(response = roc_curves_gut_microbes$True, predictor = roc_curves_gut_microbes$Predicted) 
-write.csv(roc_curves_gut_microbes, file = "roc_curves_Gut_trajectories.csv")
-
-Importance_Gut_Milk <- read.csv(file="Variable_Importance_Gut_Milk_trajectories_milk_comp.csv", 
-                             row.names = 1)
-colnames(Importance_Gut_Milk) <- c("var", "Importance")
-
-
-Importance_Gut_Milk_sub <- subset(Importance_Gut_Milk, Importance > 0.1) # only care about most important microbes right?
-Importance_Gut_Milk_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Gut_Milk_sub$var)
-Importance_Gut_Milk_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Gut_Milk_sub$var)
-
-Importance_Gut_Milk_sub2 <- Importance_Gut_Milk_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
-
-ids <- unique(Importance_Gut_Milk_sub2$'Log2change')
-
-Importance_Gut_Milk_sub2_new <- Importance_Gut_Milk_sub2[Importance_Gut_Milk_sub2$'Log2change' == ids[1],]
-
-for(i in 2:length(ids)){
-  
-  tmp = Importance_Gut_Milk_sub2[Importance_Gut_Milk_sub2$'Log2change' == ids[i],]
-  Importance_Gut_Milk_sub2_new <- rbind(Importance_Gut_Milk_sub2_new, tmp[1,])
-}
-
-Importance_Gut_Milk_sub2 <- Importance_Gut_Milk_sub2_new
-df.pa.gut.C1_sub <- subset(df.pa.gut.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
-df.pa.gut.C1_sub$OTU <- row.names(df.pa.gut.C1_sub)
-
-Importance_Gut_Milk_sub2$OTU <- Importance_Gut_Milk_sub2$`Log2change`
-Importance_Gut_Milk_sub3 <- left_join(Importance_Gut_Milk_sub2, df.pa.gut.C1_sub, by="OTU")
-rownames(Importance_Gut_Milk_sub3) <- rownames(Importance_Gut_Milk_sub2)
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
-
-Importance_Gut_Milk_sub3 <- Importance_Gut_Milk_sub3[order(-Importance_Gut_Milk_sub3$Importance),]
-Importance_Gut_Milk_sub3$taxonomy.Family[is.na(Importance_Gut_Milk_sub3$taxonomy.Family)] <- "_milk"
-Importance_Gut_Milk_sub3$taxonomy.Phylum[is.na(Importance_Gut_Milk_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
-Importance_Gut_Milk_sub3$prevalence[is.na(Importance_Gut_Milk_sub3$prevalence)] <- 10
-Importance_Gut_Milk_sub3 <- head(Importance_Gut_Milk_sub3, 20)
-
-Importance_Gut_Milk_sub3_Gut <- subset(Importance_Gut_Milk_sub3, Trajectory == "Prevalence Trajectory")
-Combined_importance_G_M <- ggplot(Importance_Gut_Milk_sub3_Gut,aes(y=reorder(OTU, Importance),x=Importance))+
-  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
-  scale_color_manual(values = cbPalette) + labs(x="Importance")
-
-tiff(file = "Fig_5_G_M_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Combined_importance_G_M
+tiff(file = paste0(path, "Figures/Fig_S5C_G_p0.05_upset.tiff"), width = 1300, height = 1200, units = "px", res = 300) 
+upset(fromList(listInputG), keep.order = T, nsets = 6, sets = groups) 
 dev.off()
+
+df_listInputG_1 <- fromList2(listInputG)
+# checking total overlap with Asthma for each group
+sum(df_listInputG_1$BF == 1 & df_listInputG_1$`Asthma, 3 Years` == 1) # 10
+sum(df_listInputG_1$`Asthma, 3 & 5 Years` == 1 & df_listInputG_1$`Asthma, 3 Years` == 1) # 13
+sum(df_listInputG_1$Colds == 1 & df_listInputG_1$`Asthma, 3 Years` == 1) # 3
+sum(df_listInputG_1$Atopy == 1 & df_listInputG_1$`Asthma, 3 Years` == 1) # 0
 ```
 

@@ -1,337 +1,689 @@
 ---
-title: "High prediction accuracy for asthma at 3 years based on nasal and gut microbiome colonization patterns and human milk components (Figure 5)"
+title: "Figure 5. Premature acquisition of specific R.gnavus functions are linked to early breastfeeding cessation, increased asthma risk, and tryptophan metabolites variations."
 ---
 
-
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
-
-
+ 
+ 
+```{r}
 ## Setup 
-
-```{r, warning=FALSE, message=FALSE}
 R.version.string
-library(phyloseq); packageVersion('phyloseq')
-library(ggplot2); packageVersion('ggplot2')
-library(cowplot); packageVersion('cowplot')
-library(vegan); packageVersion('vegan')
-library(tidyr); packageVersion('tidyr')
-library(reshape2); packageVersion('reshape2')
-library(dplyr); packageVersion('dplyr')  
-library(lmPerm); packageVersion('lmPerm')
-library(UpSetR); packageVersion('UpSetR')
-library(ComplexHeatmap); packageVersion('ComplexHeatmap')
-library(circlize); packageVersion('circlize')
-library(gbm); library('MASS')
-library(pROC); library('plotROC')
-source("Preprocessing/Functions.R")
+library(phyloseq)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(UpSetR)
+library(ComplexHeatmap)
+library(circlize)
+library(ggpubr)
+library(cowplot)
+library(here)
+
+source(paste0(here::here(), "/Functions.R"))
+
+theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
 ```
 
-### Nasal Microbiota colonization patterns
+# Figure 5A & 5B - metagenomic results - overlap in functions delayed with asthma and breastfeeding
+
+## Read in Metagenomic PreTCO results
+
 ```{r}
-Nasal_df <- read.csv("Nasal_DivChange_ColPat_N1545_Wide_Summarized.csv", row.names = 1)
+# Results from EC permutation tests - per function tests
+Res_per_taxa_ec_asthma <- read.csv(file = paste0(path, "Tables/Res_Fig4A_EC_StrataAsthmaPreTCo.csv"), row.names = 1)
+Res_per_taxa_ec_bf <- read.csv(file = paste0(path, "Tables/Res_Fig4A_EC_StrataBFPreTCo.csv"), row.names = 1)
 ```
 
-#ML predictive model - nasal
-```{r}
-phenotype_labels <- c()
+## EC overlap b/t functions associated with BF and Asthma
+```{r} 
+p_thresh2 <- 0.01
 
-for(i in 1:length(Nasal_df$asthma_3y)){
-  
-  if(is.na(Nasal_df$asthma_3y[i]) == "TRUE")
-    phenotype_labels[i] = NA
-  else{
-    
-    if(Nasal_df$asthma_3y[i] == "No")
-      phenotype_labels[i] = 0
-    if(Nasal_df$asthma_3y[i] == "Probable")
-      phenotype_labels[i] = 1
-    if(Nasal_df$asthma_3y[i] == "Possible")
-      phenotype_labels[i] = 0
-  }
-}
+Res_per_taxa_ec_asthma_late2 <- subset(Res_per_taxa_ec_asthma, p_value < p_thresh2)
 
-wilx_p_val <- c()
+Res_per_taxa_ec_bf_late2 <- subset(Res_per_taxa_ec_bf, p_value < p_thresh2)
 
-for(i in 1:dim(Nasal_df)[2]){
-  
-  if( sum(na.omit(as.numeric(Nasal_df[which(phenotype_labels == 1), i]))) != 0) {
-    
-    tmp_wilx <- wilcox.test(as.numeric(Nasal_df[which(phenotype_labels == 1), i]), 
-                            as.numeric(Nasal_df[which(phenotype_labels == 0), i]))
-    wilx_p_val[i] <- tmp_wilx$p.value
-    
-  }
-}
+BF_asth3y_ec_01 <- intersect(row.names(Res_per_taxa_ec_bf_late2), row.names(Res_per_taxa_ec_asthma_late2))
+length(BF_asth3y_ec_01) 
 
+BF_asth3y_ec_01_2 <- data.frame(BF_asth3y_ec_01) %>% 
+                    separate(BF_asth3y_ec_01, c("Function", "Taxa"), sep = "_")
 
-feature_ids <- which(wilx_p_val <= 0.05)
+table(BF_asth3y_ec_01_2$Taxa)
+BF_asth3y_ec_01_2
+```
 
-features_to_remove<- which(colnames(Nasal_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
- "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
- "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
-  
+## Checks for Figure 5A Venn diagrams & prep for Figure 5B EC heatmap
+```{r} 
+# making venn diagrams and/or upset plots
+asthma_ec_ls1 <- Res_per_taxa_ec_asthma_late2 %>% mutate(variable = row.names(.)) %>% 
+    separate(variable, c("Function", "Taxa"), sep = "_") %>% 
+    split(., .[["Taxa"]])
 
-if(length(features_to_remove) > 0)
-  feature_ids_2 <- feature_ids[-features_to_remove]
-if(length(features_to_remove) == 0)
-  feature_ids_2 <- feature_ids
+bf_ec_ls1 <- Res_per_taxa_ec_bf_late2 %>% mutate(variable = row.names(.)) %>% 
+    separate(variable, c("Function", "Taxa"), sep = "_") %>% 
+    split(., .[["Taxa"]])
 
-View(data.frame(c(1:length(feature_ids_2)), colnames(Nasal_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
-ids_to_remove <- which(is.na(phenotype_labels))
+# For Figure 5A
+## Upset plots just showing overlap b/t BF and asthma comparison for Function*Taxa strata (use to create venn diagrams) - not showing overlap in functions shared b/t taxa 
+# Just making venn diagram of these numbers instead
 
-#train-test split
-train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
-table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
+asthma_ec_funcs <- lapply(asthma_ec_ls1, function(x) row.names(x))
+names(asthma_ec_funcs) <- paste0("Asthma - ", names(asthma_ec_funcs))
 
-#gbm
-Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
-                 ,data = Nasal_df[-ids_to_remove,feature_ids_2][train_samples,],
-                 distribution = "adaboost",n.trees = 10000,
-                 shrinkage = 0.01, interaction.depth = 4)
-Boston.boost
-
-View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
-Variable_Importance <- summary(Boston.boost)
-write.csv(Variable_Importance, "Variable_Importance_Nasal_trajectories.csv")
-#Prediction on Test Set
-##We will compute the Test Error as a function of number of Trees
-n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
-#Generating a Prediction matrix for each Tree
-predmatrix<-predict(Boston.boost,Nasal_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
-test.roc <- c()
-
-for(k in 1:dim(predmatrix)[2]){
-
-  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
-                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
-  test.roc[k] = tmp_roc$auc
-
-}
-boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
-        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
-
-#Calculating The Mean squared Test Error
-#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
-#Plotting the test error vs number of trees
-plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
-which(test.roc == max(test.roc))
-k = which(test.roc == max(test.roc))
-roc_curves_nasal_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
-colnames(roc_curves_nasal_microbes) <- c("True","Predicted")
-auc(response = roc_curves_nasal_microbes$True, predictor = roc_curves_nasal_microbes$Predicted) 
-write.csv(roc_curves_nasal_microbes, file = "roc_curves_Nasal_trajectories.csv")
-
-Importance_Nasal <- read.csv(file="Variable_Importance_Nasal_trajectories.csv", 
-                             row.names = 1)
-colnames(Importance_Nasal) <- c("var", "Importance")
+bf_ec_funcs <- lapply(bf_ec_ls1, function(x) row.names(x))
+names(bf_ec_funcs) <- paste0("BF - ", names(bf_ec_funcs))
 
 
-Importance_Nasal_sub <- subset(Importance_Nasal, Importance > 0.1) # only care about most important microbes right?
-Importance_Nasal_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Nasal_sub$var)
-Importance_Nasal_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Nasal_sub$var)
+ec_ast_bf_ls_late <- c(as.list(asthma_ec_funcs), as.list(bf_ec_funcs))
 
-Importance_Nasal_sub2 <- Importance_Nasal_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
+#tiff(file = "Figures/EC_UpSet_FuncTaxa_Overlap_onlyComparison.tiff", width = 1500, height = 1500, units = "px", res = 300)
+upset(fromList(ec_ast_bf_ls_late), nsets = length(ec_ast_bf_ls_late), 
+      order.by = "freq") 
+#dev.off()
+# Total late functions (stratified by species)
+length(unique(unlist(ec_ast_bf_ls_late))) # 398
 
-ids <- unique(Importance_Nasal_sub2$'Log2change')
+## Extra version - Upset plots showing shared functions - both across Taxa (ie same function found in different taxa) - and across comparisons (later with BF and also later with asthma) 
 
-Importance_Nasal_sub2_new <- Importance_Nasal_sub2[Importance_Nasal_sub2$'Log2change' == ids[1],]
+asthma_ec_funcs <- lapply(asthma_ec_ls1, function(x) x[["Function"]])
+names(asthma_ec_funcs) <- paste0("Asthma - ", names(asthma_ec_funcs))
 
-for(i in 2:length(ids)){
-  
-  tmp = Importance_Nasal_sub2[Importance_Nasal_sub2$'Log2change' == ids[i],]
-  Importance_Nasal_sub2_new <- rbind(Importance_Nasal_sub2_new, tmp[1,])
-}
+bf_ec_funcs <- lapply(bf_ec_ls1, function(x) x[["Function"]])
+names(bf_ec_funcs) <- paste0("BF - ", names(bf_ec_funcs))
 
-Importance_Nasal_sub2 <- Importance_Nasal_sub2_new
-df.pa.nasal.C1_sub <- subset(df.pa.nasal.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
-df.pa.nasal.C1_sub$OTU <- row.names(df.pa.nasal.C1_sub)
 
-Importance_Nasal_sub2$OTU <- Importance_Nasal_sub2$`Log2change`
-Importance_Nasal_sub3 <- left_join(Importance_Nasal_sub2, df.pa.nasal.C1_sub, by="OTU")
-rownames(Importance_Nasal_sub3) <- rownames(Importance_Nasal_sub2)
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
+ec_ast_bf_ls_late <- c(as.list(asthma_ec_funcs), as.list(bf_ec_funcs))
 
-Importance_Nasal_sub3 <- Importance_Nasal_sub3[order(-Importance_Nasal_sub3$Importance),]
-Importance_Nasal_sub3$taxonomy.Family[is.na(Importance_Nasal_sub3$taxonomy.Family)] <- "_milk"
-Importance_Nasal_sub3$taxonomy.Phylum[is.na(Importance_Nasal_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
-Importance_Nasal_sub3$prevalence[is.na(Importance_Nasal_sub3$prevalence)] <- 10
-Importance_Nasal_sub3 <- head(Importance_Nasal_sub3, 20)
+#tiff(file = "Figures/EC_UpSet_Func_Overlap_TaxaandComparison.tiff", width = 1500, height = 1100, units = "px", res = 300)
+upset(fromList(ec_ast_bf_ls_late), nsets = length(ec_ast_bf_ls_late), 
+      order.by = "freq") 
+#dev.off()
+# Total late functions (NOT stratified by species - not unique to species necessarily)
+length(unique(unlist(ec_ast_bf_ls_late))) # 385
 
-Importance_Nasal_sub3_Nasal <- subset(Importance_Nasal_sub3, Trajectory == "Prevalence Trajectory")
-Combined_importance_Prev <- ggplot(Importance_Nasal_sub3_Nasal,aes(y=reorder(OTU, Importance),x=Importance))+
-  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
-  scale_color_manual(values = cbPalette) + labs(x="Importance")
+## Also check totals for these function*taxa
 
-tiff(file = "Fig_5_N_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Combined_importance
+## EC
+lapply(ec_ast_bf_ls_late, length)
+```
+
+## Figure 5B - EC heatmap
+```{r} 
+Res_per_taxa_ec_bf_late2[grepl("5.3.1.24.phosphoribosylanthranilate.isomerase_ruminococcus.gnavus|4.1.1.48|2.4.2.18.anthranilate.phosphoribosyltransferase_ruminococcus.gnavus|4.1.3.27|4.2.1.20", row.names(Res_per_taxa_ec_bf_late2)),]
+
+# Heatmap now referenced in main text primarily to highlight importance of breastfeeding for tryptophan biosynthesis pathway - focus on functions that are highly associated with BF (p < 0.001 for BF specifically, plus at least p<0.05 for asthma) 
+Res_per_taxa_ec_bf_001_late <- subset(Res_per_taxa_ec_bf_late2, p_value < 0.001 & original_effect_diff < -20)
+nrow(Res_per_taxa_ec_bf_001_late) # still 313 (of 603 w/t p<0.05) - at least as large of an effect as half of these. 
+
+# EC
+# Make heatmap showing which are Late - Change in prevalence in Asthma, no Asthma, BM and No BM
+## keep all late for Asthma using all.x true
+Res_per_taxa_egg_asthma_BF_late <- merge(Res_per_taxa_ec_asthma_late2, Res_per_taxa_ec_bf_late2, 
+                                         all.x = TRUE,
+                                         by = "row.names")
+dim(Res_per_taxa_egg_asthma_BF_late)
+# Add annotation for taxa as well, rather than showing that in the rownames
+
+Res_per_taxa_egg_asthma_BF_late_2 <- Res_per_taxa_egg_asthma_BF_late %>% separate(Row.names, c("Function", "Taxa"), sep = "_")
+row.names(Res_per_taxa_egg_asthma_BF_late_2) <- Res_per_taxa_egg_asthma_BF_late_2$Function
+
+
+## edit row names so that figure looks better
+row.names(Res_per_taxa_egg_asthma_BF_late_2)
+
+row.names(Res_per_taxa_egg_asthma_BF_late_2) <- row.names(Res_per_taxa_egg_asthma_BF_late_2) %>%
+                                                  gsub("^X|[:alpha:].*", "", .) %>%  ## not rm all alpha for some reason
+                                                  gsub("c$|g$|n$|dn$|tr$|m$|di$", "", .) %>%  
+                                                  gsub("\\.$", "", .)
+
+# first order by effect size
+Res_per_taxa_egg_asthma_BF_late_2 <- Res_per_taxa_egg_asthma_BF_late_2[order(Res_per_taxa_egg_asthma_BF_late_2$original_effect_diff.y),]
+
+# Have 'Taxa' annotations, now add biosynthesis pathway annotations
+## searching EC numbers on https://enzyme.expasy.org/enzyme-search-ec.html and entering in pathway 
+Res_per_taxa_egg_asthma_BF_late_2$Function ## must match up w/t categories!
+Res_per_taxa_egg_asthma_BF_late_2$Function_Category <- c("Glycerol metabolism", "DNA replication", 
+                                                        "DNA replication", "Glycerol metabolism",
+                                                         "Amino Acid metabolism", "Tryptophan biosynthesis",
+                                                         "Siroheme biosynthesis", "Bile hydrolysis",
+                                                        "p>0.05 for BM", "p>0.05 for BM",
+                                                        "p>0.05 for BM", "p>0.05 for BM") ## not annotating the 4 enzymes that are not overlapping 
+
+## Now that we see related pathways also want ordered by this a bit - re-ordering to make Tryptophan show up first, then the 2 glycerol metabolism functions, keep rest by effect size
+Res_per_taxa_egg_asthma_BF_late_2$Fun_order <- seq(1, nrow(Res_per_taxa_egg_asthma_BF_late_2)) #%>% keeping same order with below exceptions
+Res_per_taxa_egg_asthma_BF_late_2$Fun_order <- ifelse(Res_per_taxa_egg_asthma_BF_late_2$Function_Category == "Tryptophan biosynthesis", 0,
+                                                       ifelse(Res_per_taxa_egg_asthma_BF_late_2$Function_Category == "Glycerol metabolism", 1,
+                                                              Res_per_taxa_egg_asthma_BF_late_2$Fun_order))
+Res_per_taxa_egg_asthma_BF_late_2$Fun_order
+Res_per_taxa_egg_asthma_BF_late_2$Function_Category
+
+Res_per_taxa_egg_asthma_BF_late_3 <- Res_per_taxa_egg_asthma_BF_late_2[order(Res_per_taxa_egg_asthma_BF_late_2$Fun_order),]
+Res_per_taxa_egg_asthma_BF_late_3$Function
+
+# make matrix for heatmap
+heatmap_2 <- subset(Res_per_taxa_egg_asthma_BF_late_3, select = c("BF_status_3m_sampling_Exclusive", "BF_status_3m_sampling_No.BM", "asthma_3y_No", "asthma_3y_Yes"))
+colnames(heatmap_2) <- c("Exclusive BM", "No BM", "No Asthma", "Asthma")
+
+annotations_2 <- subset(Res_per_taxa_egg_asthma_BF_late_3, select = c("Taxa", "Function_Category"))
+
+## for annotations, want legend in specific order too...
+annotations_2$Taxa <- factor(annotations_2$Taxa, levels = c("ruminococcus.gnavus", "bifidobacterium.longum", "eubacterium.hallii"))
+annotations_2$Function_Category <- factor(annotations_2$Function_Category, levels =unique(annotations_2$Function_Category))
+
+## for taxa colors
+cols_sub <- c("#58b6ed","#9eae6a","#ae6a7c") ## match cols of taxa in Fig 4 but heatmap w/t just R. gnavus, B. longum and E. hallii
+names(cols_sub) <- levels(annotations_2$Taxa)
+
+## for function colors
+length(unique(annotations_2$Function_Category)) ## should be 7, want last one to be nothing/white
+cols_func <- c("#f5ab51", "#de7074",
+"#0186eb",
+"#91e97e",
+"#57004d",
+"#ff81c0", "grey") ## get 5 other cols 
+names(cols_func) <- unique(annotations_2$Function_Category)
+
+cn = colnames(t(heatmap_2))
+
+ha = HeatmapAnnotation(Taxa = annotations_2$Taxa, 
+                       Function_Category = annotations_2$Function_Category,
+                       col = list(Taxa = cols_sub,
+                                  Function_Category = cols_func),
+                        text = anno_text(cn, rot = 45, location = unit(1, "npc"), just = "right")
+                       )
+
+ht = Heatmap(t(heatmap_2), cluster_rows = FALSE, cluster_columns = FALSE, 
+             name = "1 Year - 3 Months\nPrevalence (%)", 
+        colorRamp2(c(80, 40, 0, -50), c("red", "pink", "white", "blue")), 
+             show_column_names = FALSE, row_names_side = "left",
+             bottom_annotation = ha
+    ) 
+
+tiff(file = paste0(path, "Figures/EC_heatmap_v02.tiff"), width = 2700, height = 1100, units = "px", res = 300)
+draw(ht, heatmap_legend_side = "left", annotation_legend_side = "left")
 dev.off()
 ```
 
+
+# Figure 5C-5D - Metabolite analyses
+
+## Figure 5C - Tryptophan Metabolites
+
+## Figure 5D - Short Chain Fatty Acids (SCFAs)
+
 ```{r}
-Nasal_ROC_plot <- ggplot() +
-  geom_roc(aes(d = True, m = Predicted, color="1"), roc_curves_Nasal_trajectories_milk_components, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="2"), roc_curves_Nasal_trajectories, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="3"), roc_curves_Nasal_microbes_3_months, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="4"), roc_curves_Nasal_microbes_1_year, n.cuts = 0) +
-  geom_line(aes(x,x), size = 0.2) + theme_bw() + labs(x = "False Positive fraction",
-                                                      y = "True Positive fraction") + theme_bw(base_size=12)
-tiff(file = "Fig_5_N_ROC_plot.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Nasal_ROC_plot
+metab_nmr <- read.csv(paste0(path, "Data/Metagenome_metabolome/BatchCorrect_NMR_matrix.csv"), row.names = 1)
+
+metab_ms <- read.csv(paste0(path, "Data/Metagenome_metabolome/BatchCorrect_LCMS_matrix.csv"), row.names = 1)
+
+metab_sdf_1y <- read.csv(paste0(path, "Data/Metagenome_metabolome/Child_Stool_1 year.csv"))
+metab_sdf_3m <- read.csv(paste0(path, "Data/Metagenome_metabolome/Child_Stool_3 months.csv"))
+
+sdf <- read.csv(paste0(path, "Data/Data_subsets/CHILD_metadata_fully_cleaned.csv")) ## see Processing_Metagenomics.Rmd 
+```
+
+Extra - Create a data dictionary for metabolite data
+```{r}
+# Lists of analyte names for future analyses & make metabolite data dictionary - for annotations
+ms_metabs <- colnames(metab_ms)
+nmr_metabs <- colnames(metab_nmr)
+colSums(is.na(metab_nmr))
+# Also make annotations for the metabolites:
+
+# SCFA & related: Butyrate, Propionate, Valerate, X4.Aminobutyrate, Isobutyric.acid, Isovaleric.acid
+SCFA_rel <- c("X4.Aminobutyrate", "Isobutyric.acid", "Isovaleric.acid")
+SCFA_main <- c("Butyrate", "Propionate", "Valerate", "Acetic.acid")
+
+# Other acids: Formate (regulates anaerobic fermentation, pyruvate related), Phenylacetate, X3.Phenylpropionate, Nicotinic.acid, X5.Aminopentanoate 
+acids <- c("Formate", "Phenylacetate", "X3.Phenylpropionate", "Nicotinic.acid", "X5.Aminopentanoate")
+
+# Simple fermentation products & solvents: Ethanol, Isopropanol, Acetone, Acetoin, p.Cresol, Methanol, Propylene.glycol, Cadaverine
+simp_ferm_solv <- c("Ethanol", "Isopropanol", "Acetone", "Acetoin", "p.Cresol", "Methanol", "Propylene.glycol", "Cadaverine")
+
+# CHO: Fructose, Xylose, D.Galactose, L.Fucose, Myo.inositol, Arabinose
+CHO <- c("Fructose", "Xylose", "D.Galactose", "L.Fucose", "Myo.inositol", "Arabinose")
+
+# Lipid related: Glycerol, 
+lipid <- "Glycerol"
+
+# Nitrogenous: N6.Acetyllysine, Pyroglutamic.acid, Uracil, Trimethylamine
+N <- c("Pyroglutamic.acid", "Uracil")
+
+# Nitrogenous with Acetyl or Methyl group
+N_AcetMeth <- c("N6.Acetyllysine", "Trimethylamine")
+
+# Grouping ms metabs more systematically
+SCFA_rel_ms <- ms_metabs[grepl("butyric|valeric|acetic|propionic|propionate|acetate", ms_metabs)] ## To prioritize this over 'ms_acids' in ifelse (to separate scfa's from other acids)
+ms_acids <- ms_metabs[grepl("acid|ate$|HPHPA", ms_metabs)]
+ms_PCs <- ms_metabs[grepl("^PC", ms_metabs)]
+ms_LYSOC <- ms_metabs[grepl("^LYSOC", ms_metabs)]
+ms_SMs <- ms_metabs[grepl("^SM|SM$", ms_metabs)]
+ms_Cer <- ms_metabs[grepl("^Cer|^Hex2Cer|^HexCer", ms_metabs)]
+ms_CEs <- ms_metabs[grepl("^CE", ms_metabs)]
+ms_DG_TG <- ms_metabs[grepl("^DG|^TG", ms_metabs)]
+ms_N <- ms_metabs[grepl("in$|ine$|Diaminopropane|DOPA|Methionine.sulfoxide|Nudifloramide", ms_metabs)] # at least all these will contain nitrogen, if not a full AA
+ms_AcMethN <- ms_metabs[grepl("Acetyl|Methyl", ms_metabs)] ## a couple acids mistakenly added - won't be included b/c prioritizing acids in ifelse
+ms_shortC <- ms_metabs[grepl("^C4$|^C5$|C7DC$", ms_metabs)]
+Tryp_ind <- c("Tryptophan", "Indole") ## also want tryptophan & indole in own group together b/c of potential extra importance, plus these compounds are metabolically related
+
+# Make a metabolite annotation based on above info
+metab_annotation <- data.frame(variable = c(nmr_metabs, ms_metabs), 
+                               method = c(rep("NMR", length(nmr_metabs)), rep("MS", length(ms_metabs)))) %>% 
+                    mutate(., class = ifelse(variable %in% c(SCFA_rel, SCFA_rel_ms), "other SCFAs & related", 
+                                          ifelse(variable %in% SCFA_main, "Main SCFAs",
+                                                 ifelse(variable %in% c(acids, ms_acids), "Acids (non-SCFA)",
+                                                        ifelse(variable %in% simp_ferm_solv, "Solvents/Ferment-products",
+                                                               ifelse(variable %in% CHO, "CHO", ifelse(variable %in% c(lipid, ms_DG_TG), "Lipids & related",
+                                                                      ifelse(variable %in% c(N, ms_N), "Nitrogenous",
+                                                                             ifelse(variable %in% c(N_AcetMeth, ms_AcMethN), "N wt Methyl/Acetyl",
+                                                                                    ifelse(variable %in% ms_PCs, "PCs", 
+                                                                                           ifelse(variable %in% ms_LYSOC, "LYSOC",
+                                                                                                  ifelse(variable %in% ms_SMs, "SMs",
+                                                                                                         ifelse(variable %in% ms_Cer, "Ceramides" ,
+                                                                                                                ifelse(variable %in% ms_CEs, "CEs",
+                                                                                                                       ifelse(variable %in% ms_shortC, "short C chains", 
+                                                                                                                       ifelse(variable %in% Tryp_ind, "Tryp. & Indole",  "Other"))
+                                                                                                                       ))))))))))))
+                                          ) 
+                           )
+
+table(metab_annotation$class) # none in 'other' group now, great
+# NOTE: p.Cresol is produced from fermentation of tyrosine
+
+## want consistent order of factor levels
+levels_metab <- c("Main SCFAs", "other SCFAs & related", "Acids (non-SCFA)", "Tryp. & Indole", "Lipids & related", "CHO",  "Nitrogenous", "N wt Methyl/Acetyl", "Solvents/Ferment-products", "Ceramides", "CEs", "LYSOC", "PCs", "SMs", "short C chains")
+metab_annotation$class <- factor(metab_annotation$class, levels = levels_metab)
+```
+
+## Quick data checks and cleaning/merging
+```{r}
+# no na values
+sum(is.na(metab_ms))
+sum(is.na(metab_nmr))
+
+# sample overlap b/t datasets
+nrow(metab_ms) # 1971 samples analzyed
+nrow(metab_nmr) # 1709 samples analzyed
+length(intersect(row.names(metab_ms), row.names(metab_nmr))) ## 1704, most samples analyzed in both
+
+df_metabs <- merge(metab_ms, metab_nmr, by = "row.names", all = TRUE)
+dim(df_metabs)
+
+# Also merge w/t sample data
+
+## get df ready to merge
+metab_sdf_1y$CollectionShort.Date <- NULL
+metab_sdf_3m$CollectionShortDate <- NULL
+metab_sdf_1y$CollectioDate <- NULL
+metab_sdf_3m$CollectionDate <- NULL
+metab_sdf_1y$Visit <- "1 Year"
+metab_sdf_3m$Visit <- "3 Months"
+
+## make Row.names/sample id's match format of other df
+df_metabs$Row.names <- df_metabs$Row.names %>% gsub("-", ".", .) %>% gsub("\\.\\d\\.\\d$", "", .)
+
+df_metabs_sdf <- rbind(metab_sdf_1y, metab_sdf_3m) %>% mutate(BarCode = gsub("-", ".", BarCode)) %>% 
+                    mutate(BarCode = gsub("\\.\\d\\.\\d$", "", BarCode)) %>% 
+                    merge(., df_metabs, by.x = "BarCode", by.y = "Row.names")
+nrow(df_metabs_sdf)
+
+sum(duplicated(df_metabs_sdf$BarCode))
+
+table(df_metabs_sdf$Visit)
+
+# Also merge w/t all sample data - sdf
+df_metabs_sdf_2 <- merge(df_metabs_sdf, sdf, by.x = "SubjectNumber", by.y = "CHILDid")
+sum(duplicated(df_metabs_sdf_2$BarCode))
+nrow(df_metabs_sdf_2) == nrow(df_metabs_sdf) # true good
+
+table(df_metabs_sdf_2$Visit)
+```
+
+# Adding sample filters to be consistent w/t other analyses
+Remove infants with no or inconsistent BF status data, and age at sample collection outliers, never breastfed (in that order to check n removed after each step by Visit)
+```{r} 
+sum(is.na(df_metabs_sdf_2$BF_status_3m_sampling2)) # rm 29 never BF
+table(df_metabs_sdf_2$BF_status_3m_sampling2)
+
+# doing first just to track numbers easier, after this filter how many rm by other filters?
+df_metabs_sdf_2.1 <- subset(df_metabs_sdf_2, !is.na(BF_status_3m_sampling2)) 
+table(df_metabs_sdf_2.1$Visit)
+
+# Exclude Age at sample collection outliers
+df_metabs_sdf_3 <- subset(df_metabs_sdf_2.1, (age_3m_months < 8 & age_3m_months > 1 & Visit == "3 Months") | (age_1y_months < 21 & age_1y_months > 8  & Visit == "1 Year")) 
+nrow(df_metabs_sdf_3) #  remain - 
+nrow(df_metabs_sdf_2.1) - nrow(df_metabs_sdf_3) # 13 samples removed
+table(df_metabs_sdf_3$Visit)
+
+df_metabs_sdf_4 <- subset(df_metabs_sdf_3, BF_status_3m_sampling2 != "Never breastfed") 
+nrow(df_metabs_sdf_4) # was 1892 remain. Now 1879 removed 
+nrow(df_metabs_sdf_3) - nrow(df_metabs_sdf_4) # 55 samples removed
+table(df_metabs_sdf_4$Visit)
+
+# New input df for data subset creation 
+df_metabs_input <- df_metabs_sdf_4
+
+### checking n's for specific analyses - scfa/nmr
+table(df_metabs_input[!is.na(df_metabs_input$Propionate),]$Visit)
+
+table(df_metabs_input[!is.na(df_metabs_input$Propionate),]$Visit, df_metabs_input[!is.na(df_metabs_input$Propionate),]$BF_status_3m_sampling2)
+```
+
+## Dataset types - split by comparison (slightly different set of individuals per comparison)
+```{r}
+vars_toKeep <- c("SubjectNumber", "Visit", "BF_status_3m_sampling", "Solids_3m_sampling", "asthma_3y") 
+## only keeping selected vars from sdf to limit size of dfs!
+
+## For plots & summary tables
+df_metabs_sdf_m <- melt(df_metabs_input, measure.vars = c(ms_metabs, nmr_metabs), 
+                        id.vars = vars_toKeep) %>%
+                        merge(metab_annotation, ., by = "variable") ## adding metabolite annotations to melted df version
+
+
+# Wide format Data Subsets For Tests, combine into list
+### Split - separate tests for BF and Asthma 
+df_metabs_sdf_BF <- subset(df_metabs_input, BF_status_3m_sampling != "Partial", 
+                           select = c(vars_toKeep, ms_metabs, nmr_metabs))
+df_metabs_sdf_BF$Subset <- "Breastfeeding"
+
+## based on solids check, doing solids sensitivity analysis right away too
+df_metabs_sdf_BF_noS <- subset(df_metabs_input, BF_status_3m_sampling != "Partial" & Solids_3m_sampling %in% c("No Solids", NA), 
+                           select = c(vars_toKeep, ms_metabs, nmr_metabs)) ## just exluding those w/t known solids
+df_metabs_sdf_BF_noS$Subset <- "Breastfeeding, no solids"
+
+df_metabs_sdf_Ast <- subset(df_metabs_input, asthma_3y != "Possible", 
+                           select = c(vars_toKeep, ms_metabs, nmr_metabs))
+df_metabs_sdf_Ast$Subset <- "Asthma"
+
+
+df_metabs_sdf_all <- rbind(df_metabs_sdf_BF, df_metabs_sdf_BF_noS, df_metabs_sdf_Ast)
+
+## Dataset list for downstream test input = df_ls
+df_ls <- split(df_metabs_sdf_all, interaction(df_metabs_sdf_all$Visit, df_metabs_sdf_all$Subset)) 
+## main overall stratification should go first - Visit - strata_var1 for test later
+names(df_ls)
+```
+
+## Data summaries (using long df format but same data as df_ls)
+```{r}
+metab_summaries_Asthma <- data_summary_V2(subset(df_metabs_sdf_m, asthma_3y != "Possible"), varname = "value", groupnames = c("variable", "class", "method", "Visit", "asthma_3y"))
+
+metab_summaries_BF <- data_summary_V2(subset(df_metabs_sdf_m, BF_status_3m_sampling != "Partial"), varname = "value", groupnames = c("variable", "class", "method", "Visit", "BF_status_3m_sampling"))
+
+# overall by visit - extra not saved
+metab_summaries <- data_summary_V2(df_metabs_sdf_m, varname = "value", groupnames = c("variable", "class", "method", "Visit"))
+
+# Extra - done for sensitivity analysis 
+#metab_summaries_BF_noSolid <- data_summary_V2(subset(df_metabs_sdf_m, BF_status_3m_sampling != "Partial" & Solids_3m_sampling %in% c("No Solids", NA)), 
+#                                   varname = "value", groupnames = c("variable", "class", "method", "Visit", "BF_status_3m_sampling"))
+
+write.csv(metab_summaries_Asthma, paste0(path, "Tables/Res_Fig5C_Metab_Asthma_Summary.csv"))
+write.csv(metab_summaries_BF, paste0(path, "Tables/Res_Fig5C_Metab_BF_Summary.csv"))
+```
+
+## Per-timepoint univariate tests 
+```{r}
+# checks
+length(c("asthma_3y", "asthma_3y", rep("BF_status_3m_sampling", 4))) == length(df_ls) # good
+
+# check - for each df, testing the right factor variable? Note that added BF comparisons are for a sensitivity analysis
+names(df_ls)
+c("asthma_3y", "asthma_3y", rep("BF_status_3m_sampling", 4))
+
+# tests
+test_df <- wilcox.unpaired.loops(df_ls = df_ls, 
+                                 vars_names = metab_annotation$variable, # same continuous variables to test across each df/comparison
+                                 factor_vars = c("asthma_3y", "asthma_3y", rep("BF_status_3m_sampling", 4)) # cat vars to test for each df 
+                                 )
+
+write.csv(test_df, file = paste0(path, "Tables/Res_Fig5CD_Wilcoxon_perTP_metabolites_Asthma_BF_withSensitivity.csv"))
+
+## vars sig for anything
+table(test_df$Subset, test_df$p.cat) 
+
+# Sig table - use to annotate significance on plots later
+length(unique(subset(test_df, p.cat != "")$variable)) # n to plot 
+```
+
+```{r}
+# Edits for main plots in paper (for specific timepoint plots - decided on 3 month only, only specific metabolites, etc.)
+## Plotting only some metabs: "Main SCFAs" , Other metabolites to plot:  Tryptophan, Tryptamine, Indole
+plot_metabs <- c(metab_annotation[metab_annotation$class == "Main SCFAs",]$variable, "Tryptophan", "Tryptamine", "Indole")
+
+## Decided to only move forward with main BF comparison at 3 months for metabolites 
+
+### main long df subset
+### want bf only apparently - also make matching main df to plot (for individual 3 month timepoint)
+df_plots_sub_bf <- subset(df_metabs_sdf_m, BF_status_3m_sampling != "Partial" & Visit == "3 Months" & 
+                          variable %in% plot_metabs[1:4]) 
+
+### test res subset
+test_df_sub_bf_0 <- subset(test_df, Subset == "3 Months.Breastfeeding" & 
+                          variable %in% plot_metabs[1:4])
+
+## summarized across all subsets - just for p-val positions in plots - NOT to be used for actual dta summaries
+### just doing 3 month BF now, so just summarize that subset
+summary_forplot <- data_summary_V2(df_plots_sub_bf, 
+                                   varname = "value", groupnames = c("variable")) %>%
+                      subset(., select = c("max", "variable"))
+
+colnames(summary_forplot)[colnames(summary_forplot) == "max"] <- "y.position" ## relabel the summary stat want to use for pval pos.
+summary_forplot$y.position <- ifelse(summary_forplot$y.position > 0,
+                                     summary_forplot$y.position*0.8,
+                                     summary_forplot$y.position*1.2) 
+### depending if neg or pos, fraction used to get p-val position right will differ. 0 - 1*0.5
+
+# add p-val annotation y.position to df for plotting
+test_df_sub_bf <- merge(test_df_sub_bf_0, summary_forplot, by = "variable") 
+nrow(test_df_sub_bf) == nrow(test_df_sub_bf_0) # great
+```
+
+## Generate paired datasets & organize in list
+To compare 3M to 1Y values of same participant - stratified by BF and Asthma
+- includes sensitivity analysis - exclude solids
+```{r}
+## One dataset per - asthma, BF
+paired_asthma <- merge(df_ls$`3 Months.Asthma`, 
+                       subset(df_ls$`1 Year.Asthma`, select = c("SubjectNumber", ms_metabs, nmr_metabs)), 
+                       by = "SubjectNumber", suffixes = c("_3m", "_1y")) ## Just adding extra subset to make data cleaner looking
+row.names(paired_asthma) <- paired_asthma$SubjectNumber ## good to keep rownames as subject ids to keep track of in traj dataset output later
+dim(paired_asthma) # 467 samples matched
+
+paired_bf <- merge(df_ls$`3 Months.Breastfeeding`, 
+                   subset(df_ls$`1 Year.Breastfeeding`, select = c("SubjectNumber", ms_metabs, nmr_metabs)),
+                   by = "SubjectNumber", suffixes = c("_3m", "_1y"))
+row.names(paired_bf) <- paired_bf$SubjectNumber 
+
+
+paired_bf_no_s <- merge(df_ls$`3 Months.Breastfeeding, no solids`, 
+                        subset(df_ls$`1 Year.Breastfeeding, no solids`, select = c("SubjectNumber", ms_metabs, nmr_metabs)),
+                        by = "SubjectNumber", suffixes = c("_3m", "_1y"))
+row.names(paired_bf_no_s) <- paired_bf_no_s$SubjectNumber 
+
+
+traj_df_ls <- list(paired_bf, paired_asthma, paired_bf_no_s)
+names(traj_df_ls) <- c("BF", "Asthma", "NoSolids_BF")
+
+
+# Stratified version for Paired wilcoxon tests comparing b/t timepoints
+paired_df_ls <- c(split(paired_bf, paired_bf$BF_status_3m_sampling), split(paired_asthma, paired_asthma$asthma_3y), split(paired_bf_no_s, paired_bf_no_s$BF_status_3m_sampling))
+names(paired_df_ls) <- paste(c("BF", "BF", "Asthma", "Asthma", "NoSolid_BF", "NoSolid_BF"), names(paired_df_ls), sep = "_") %>% gsub(" ", "_", .)
+names(paired_df_ls) 
+```
+
+## Paired Wilcoxon tests - stratified by Asthma and breastfeeding; and trajectory analysis (using derived variable - change in concentration between 1 year and 3 months)
+```{r}
+test_df <- multi.wilcox.pair.loops(paired_df_ls = paired_df_ls,
+                                  ## All varnames must have matching order, based on tests to do
+                                   var_names_x = gsub("$", "_3m", c(ms_metabs, nmr_metabs)),
+                                   var_names_y = gsub("$", "_1y", c(ms_metabs, nmr_metabs)),
+                                   var_names = c(ms_metabs, nmr_metabs) ## extra, varnames matching x and y varnames but without the suffix
+                                   )
+
+# Extra - merge p-vals with Metabolite annotations: metab_annotation 
+test_df_paired_strata <- merge(test_df_paired, metab_annotation, by = "variable")
+
+### quick additional sanity check of sample sizes...(shouldn't really need to do this)
+nrow(paired_df_ls$BF_Exclusive[!is.na(paired_df_ls$BF_Exclusive$Butyrate_1y) & !is.na(paired_df_ls$BF_Exclusive$Butyrate_3m),])
+nrow(paired_df_ls$BF_Exclusive[!is.na(paired_df_ls$BF_No_BM$Butyrate_1y) & !is.na(paired_df_ls$BF_No_BM$Butyrate_3m),])
+```
+
+### Prep data & plot - Fig. 5C and 5D 
+```{r, fig.height=7}
+# datasets for plotting static timepoint res: plot_df_ls_4, test_df_sig_summ_sp_3
+var_names_x <- gsub("$", "_3m", c(ms_metabs, nmr_metabs))
+var_names_y <- gsub("$", "_1y", c(ms_metabs, nmr_metabs))
+
+# for plotting stratified 3m vs 1y res: paired_df_ls, test_df (3m vs 1y p-vals )
+# Just melting actually, will maybe re-split for plotting subsets separately later
+plot_paired_df <- bind_rows(paired_df_ls, .id = "Subset") %>% melt(., measure.vars = c(var_names_x, var_names_y)) %>%
+                      mutate(Visit = ifelse(grepl("_3m$", variable), "3 Months", "1 Year"), ## correct visit var for melted df
+                             Metabolite = gsub("_3m$|_1y$", "", variable))  # correct variable
+                    
+## relabel the test var for each df - call it 'test_var'? Not needed for this because the comparison is always 'Visit'
+
+# need a group1, group2 and y.position column in p-val df for this package - pubr
+test_df$group1 <- unique(plot_paired_df$Visit)[1]
+test_df$group2 <- unique(plot_paired_df$Visit)[2]
+colnames(test_df)[colnames(test_df) == "variable"] <- "Metabolite" ## also relabel var id to match plotting df
+
+# y.pos based on upper lim of data across subsets - just use for pval position NOT actual data summaries
+summary_paired_df <- data_summary_V2(plot_paired_df, varname = "value", groupnames = c("Metabolite"))
+summary_paired_sub <- subset(summary_paired_df, select = c("max", "Metabolite"))
+colnames(summary_paired_sub)[colnames(summary_paired_sub) == "max"] <- "y.position" ## relabel the summary stat want to use for pval pos.
+summary_paired_sub$y.position <- ifelse(summary_paired_sub$y.position > 0,
+                                        summary_paired_sub$y.position*0.8,
+                                        summary_paired_sub$y.position*1.2) 
+# depending if neg or pos, fraction used to get p-val position right will differ. 0 - 1*0.5
+
+test_df_2 <- merge(test_df, summary_paired_sub, by = c("Metabolite"))
+nrow(test_df_2) == nrow(test_df) # great
+
+
+table(plot_paired_df$Subset) ## also don't wana plot all subsets - exclude NoSolid_BF_Exclusive and NoSolid_BF_No_BM for main plot
+plot_paired_sub <- subset(plot_paired_df, Metabolite %in% plot_metabs & Subset %ni% c("NoSolid_BF_Exclusive", "NoSolid_BF_No_BM"))
+test_df_2_sub <- subset(test_df_2, Metabolite %in% plot_metabs & Subset %ni% c("NoSolid_BF_Exclusive", "NoSolid_BF_No_BM"))
+
+table(plot_paired_sub$Subset)
+## factor level order 
+plot_paired_sub$Subset <- factor(plot_paired_sub$Subset, levels = c("BF_Exclusive" , "BF_No_BM", "Asthma_No", "Asthma_Yes"))
+test_df_2_sub$Subset <- factor(test_df_2_sub$Subset, levels = c("BF_Exclusive" , "BF_No_BM", "Asthma_No", "Asthma_Yes"))
+
+
+# decided to relabel levels: Exclusive BM; No BM & No Asthma; Asthma
+plot_paired_sub$Subset <- revalue(plot_paired_sub$Subset, 
+                                  c("BF_Exclusive" = "Exclusive BM", "BF_No_BM" = "No BM",
+                                    "Asthma_No" = "No Asthma", "Asthma_Yes" = "Asthma"))
+test_df_2_sub$Subset <- revalue(test_df_2_sub$Subset, 
+                                  c("BF_Exclusive" = "Exclusive BM", "BF_No_BM" = "No BM",
+                                    "Asthma_No" = "No Asthma", "Asthma_Yes" = "Asthma"))
+
+plot_paired_sub$Visit <- factor(plot_paired_sub$Visit, levels = c("3 Months", "1 Year"))
+
+
+vis_cols <- c("#f5877f", "#b02c23", "#31d462", "#017524", "#84aef5", "#3a609e", "#daa8ff", "#8552ab")
+
+# Just so scales are easier to control - want diff scale for each metabolite 
+### Decided - not to facet by metabolite but split by metab instead
+plot_paired_sub_sp <- split(plot_paired_sub, plot_paired_sub$Metabolite)
+test_df_2_sub_sp <- split(test_df_2_sub, test_df_2_sub$Metabolite)
+identical(names(test_df_2_sub_sp), names(plot_paired_sub_sp)) # good, match order
+
+## Also - want vis_cols aligned so that colors match - make list w/t matched order
+# Originally: Red = Acetic Acid, Green = Butyrate, Blue = Prop., Purple = Valerate
+names(plot_paired_sub_sp)
+vis_cols_ls <- list(vis_cols[1:2], vis_cols[3:4], c("#f5ea51", "#807d57"),
+                    vis_cols[5:6], c("#f5ab51", "#b87525"), c("#f5ab51", "#b87525"), 
+                    vis_cols[7:8])
+length(vis_cols_ls) == length(plot_paired_sub_sp)
+
+test_df_2_sub_sp$Tryptamine$y.position <- -1 # not showing up b/c negative so not the same thing
+test_df_2_sub_sp$Indole$y.position <- -3.5 # not showing up b/c negative so not the same thing
+test_df_2_sub_sp$Tryptophan$y.position <- 1.3 # not showing up b/c negative so not the same thing
+
+vis_plots <- list()
+for(i in seq_along(plot_paired_sub_sp)) {
+vis_plots[[i]] <- ggplot(plot_paired_sub_sp[[i]], aes(x = Visit, y = value)) + 
+  facet_wrap(~Subset, ncol = 4) + 
+  geom_violin(alpha=0.3) +
+  geom_jitter(aes(color=Visit), alpha=0.70, size=1, width = 0.2) +
+  stat_summary(fun=mean, geom="point", shape=23, size=1, fill="black") +
+  scale_y_continuous(expand=c(0,0)) + 
+  labs(x = "", y = "Normalized concentration") +
+  theme(legend.position = "none", title = element_text(size = 10.5), axis.text.x = element_text(size = 11)) +
+  scale_color_manual(values = vis_cols_ls[[i]]) +
+  stat_pvalue_manual(test_df_2_sub_sp[[i]], label = "p.cat",  bracket.size = 0, color="black", size = 8) +
+  ggtitle(names(plot_paired_sub_sp)[i])
+}
+
+# just selecting specific tryptophan related metabolites to plot like this - plotting SCFA metabolites differently (see below)
+tiff(file = paste0(path, "Figures/Fig_5C_TryptophanMetabs_BFAsthma.tiff"), width = 1700, height = 2200, units = "px", res = 300)
+plot_grid(vis_plots[[6]], vis_plots[[5]], vis_plots[[3]], ncol = 1)
 dev.off()
-```
 
-### Gut Microbiota colonization patterns
-```{r}
-Gut_df <- read.csv("Gut_DivChange_ColPat_G555_Wide_Summarized.csv", row.names = 1)
-```
 
-#ML predictive model - gut
-```{r}
-phenotype_labels <- c()
+# bf only 
+plot_paired_sub_bf <- subset(plot_paired_sub, Subset %in% c("Exclusive BM", "No BM"))
+test_df_2_sub_bf <- subset(test_df_2_sub, Subset %in% c("Exclusive BM", "No BM"))
 
-for(i in 1:length(Gut_df$asthma_3y)){
-  
-  if(is.na(Gut_df$asthma_3y[i]) == "TRUE")
-    phenotype_labels[i] = NA
-  else{
-    
-    if(Gut_df$asthma_3y[i] == "No")
-      phenotype_labels[i] = 0
-    if(Gut_df$asthma_3y[i] == "Probable")
-      phenotype_labels[i] = 1
-    if(Gut_df$asthma_3y[i] == "Possible")
-      phenotype_labels[i] = 0
-  }
+# add static timepoint version to 3m vs 1 year comparison - just to get dimentions of fig right
+# df_plots_sub_bf, test_df_sub_bf
+
+test_df_sub_bf$Subset <- "3 Months"
+names(test_df_sub_bf)[names(test_df_sub_bf) == "variable"] <- "Metabolite"
+
+test_df_sub_bf_2 <- rbind(test_df_sub_bf, test_df_2_sub_bf)
+test_df_sub_bf_2_sp <- split(test_df_sub_bf_2, test_df_sub_bf_2$Metabolite)
+
+
+df_plots_sub_bf$Subset <- "3 Months"
+names(df_plots_sub_bf)[names(df_plots_sub_bf) == "variable"] <- "Metabolite"
+
+names(df_plots_sub_bf)[names(df_plots_sub_bf) == "BF_status_3m_sampling"] <- "test_var"
+names(plot_paired_sub_bf)[names(plot_paired_sub_bf) == "Visit"] <- "test_var"
+
+plot_paired_sub_2 <- rbind(select(plot_paired_sub_bf, test_var, Subset, value, Metabolite),
+                           select(df_plots_sub_bf, test_var, Subset, value, Metabolite)
+                           )
+
+plot_paired_sub_2_sp <- split(plot_paired_sub_2, plot_paired_sub_2$Metabolite)
+
+vis_cols_ls_2 <- list(c(vis_cols[1:2], "#f5877f", "#f5877f"), c(vis_cols[3:4], "#31d462", "#31d462"), 
+                      c("#f5ea51", "#807d57", "#f5ea51", "#f5ea51"),
+                    c(vis_cols[5:6], "#84aef5", "#84aef5"), c("#f5ab51", "#b87525", "#f5ab51", "#f5ab51"), 
+                    c("#f5ab51", "#b87525", "#f5ab51", "#f5ab51"), 
+                    c(vis_cols[7:8], "#daa8ff", "#daa8ff"))
+
+test_df_sub_bf_2_sp$Valerate$y.position <- 1.8
+test_df_sub_bf_2_sp$Butyrate$y.position <- 4.312
+
+vis_plots_bf <- list()
+for(i in seq_along(plot_paired_sub_2_sp)) {
+vis_plots_bf[[i]] <- ggplot(plot_paired_sub_2_sp[[i]], aes(x = test_var, y = value)) + 
+  facet_wrap(~Subset, scales = "free_x", ncol = 4) + 
+  geom_violin(alpha=0.3) +
+  geom_jitter(aes(color=test_var), alpha=0.70, size=1, width = 0.2) +
+  stat_summary(fun=mean, geom="point", shape=23, size=1, fill="black") +
+  scale_y_continuous(expand=c(0,0)) + 
+  labs(x = "", y = "Normalized concentration") +
+  theme(legend.position = "none", title = element_text(size = 10.5), axis.text.x = element_text(size = 11.5)) +
+  scale_color_manual(values = vis_cols_ls_2[[i]]) +
+  stat_pvalue_manual(test_df_sub_bf_2_sp[[i]], label = "p.cat",  bracket.size = 0, color="black", size = 8) +
+  ggtitle(names(plot_paired_sub_2_sp)[i])
 }
 
-wilx_p_val <- c()
-
-for(i in 1:dim(Gut_df)[2]){
-  
-  if( sum(na.omit(as.numeric(Gut_df[which(phenotype_labels == 1), i]))) != 0) {
-    
-    tmp_wilx <- wilcox.test(as.numeric(Gut_df[which(phenotype_labels == 1), i]), 
-                            as.numeric(Gut_df[which(phenotype_labels == 0), i]))
-    wilx_p_val[i] <- tmp_wilx$p.value
-    
-  }
-}
-
-
-feature_ids <- which(wilx_p_val <= 0.05)
-
-features_to_remove<- which(colnames(Gut_df)[feature_ids] %in%  c("CHILDid", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y","AR_posprob_3y", "AR_5y", "StudyCenter", "recwheeze5y", "asthma_posprob_3y", 
- "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y", "recwheeze1y", "atopy1y", "wheeze3m", "mom_asthma_ever",
- "Earinf_1y", "Fever_3m", "birthmode2", "Fever_1y"))
-  
-
-if(length(features_to_remove) > 0)
-  feature_ids_2 <- feature_ids[-features_to_remove]
-if(length(features_to_remove) == 0)
-  feature_ids_2 <- feature_ids
-
-View(data.frame(c(1:length(feature_ids_2)), colnames(Gut_df)[feature_ids_2], wilx_p_val[feature_ids_2]))
-ids_to_remove <- which(is.na(phenotype_labels))
-
-#train-test split
-train_samples <- sample(c(1:length(phenotype_labels[-ids_to_remove])), size = 0.8*length(phenotype_labels[-ids_to_remove]))
-table(phenotype_labels[-ids_to_remove][train_samples])/sum(table(phenotype_labels[-ids_to_remove][train_samples]))
-
-#gbm
-Boston.boost=gbm(as.numeric(phenotype_labels)[-ids_to_remove][train_samples] ~ . 
-                 ,data = Gut_df[-ids_to_remove,feature_ids_2][train_samples,],
-                 distribution = "adaboost",n.trees = 10000,
-                 shrinkage = 0.01, interaction.depth = 4)
-Boston.boost
-
-View(summary(Boston.boost)) #Summary gives a table of Variable Importance and a plot of Variable Importance
-Variable_Importance <- summary(Boston.boost)
-write.csv(Variable_Importance, "Variable_Importance_Gut_trajectories.csv")
-#Prediction on Test Set
-##We will compute the Test Error as a function of number of Trees
-n.trees = seq(from=100 ,to=10000, by=100) #no of trees-a vector of 100 values 
-#Generating a Prediction matrix for each Tree
-predmatrix<-predict(Boston.boost,Gut_df[-ids_to_remove, feature_ids][-train_samples,] ,n.trees = n.trees)
-test.roc <- c()
-
-for(k in 1:dim(predmatrix)[2]){
-
-  tmp_roc <- multiclass.roc(response = phenotype_labels[-ids_to_remove][-train_samples], 
-                 predictor = as.numeric(predmatrix[,k])) #Area under the curve: 0.5687
-  test.roc[k] = tmp_roc$auc
-
-}
-boxplot(predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 1], 
-        predmatrix[,k][phenotype_labels[-ids_to_remove][-train_samples] == 0])
-
-#Calculating The Mean squared Test Error
-#head(test.error) #contains the Mean squared test error for each of the 100 trees averaged
-#Plotting the test error vs number of trees
-plot(n.trees , test.roc , pch=19,col="blue",xlab="Number of Trees",ylab="Test Error", main = "Perfomance of Boosting on Test Set")
-which(test.roc == max(test.roc))
-k = which(test.roc == max(test.roc))
-roc_curves_gut_microbes <- data.frame(as.numeric(phenotype_labels[-ids_to_remove][-train_samples]), as.numeric(predmatrix[,k]))
-colnames(roc_curves_gut_microbes) <- c("True","Predicted")
-auc(response = roc_curves_gut_microbes$True, predictor = roc_curves_gut_microbes$Predicted) 
-write.csv(roc_curves_gut_microbes, file = "roc_curves_Gut_trajectories.csv")
-
-Importance_Gut <- read.csv(file="Variable_Importance_Gut_trajectories.csv", 
-                             row.names = 1)
-colnames(Importance_Gut) <- c("var", "Importance")
-
-
-Importance_Gut_sub <- subset(Importance_Gut, Importance > 0.1) # only care about most important microbes right?
-Importance_Gut_sub$var <- gsub("1y3m_change", "Prevalence Trajectory", Importance_Gut_sub$var)
-Importance_Gut_sub$var <- gsub("1y3m_Log2change", "Log2change", Importance_Gut_sub$var)
-
-Importance_Gut_sub2 <- Importance_Gut_sub %>% separate(var,  c("Log2change", "Trajectory"), sep = "_")
-
-ids <- unique(Importance_Gut_sub2$'Log2change')
-
-Importance_Gut_sub2_new <- Importance_Gut_sub2[Importance_Gut_sub2$'Log2change' == ids[1],]
-
-for(i in 2:length(ids)){
-  
-  tmp = Importance_Gut_sub2[Importance_Gut_sub2$'Log2change' == ids[i],]
-  Importance_Gut_sub2_new <- rbind(Importance_Gut_sub2_new, tmp[1,])
-}
-
-Importance_Gut_sub2 <- Importance_Gut_sub2_new
-df.pa.gut.C1_sub <- subset(df.pa.gut.C1, select = c("taxonomy.Family", "taxonomy.Phylum", "prevalence")) # Also Add Average Prevalence's
-df.pa.gut.C1_sub$OTU <- row.names(df.pa.gut.C1_sub)
-
-Importance_Gut_sub2$OTU <- Importance_Gut_sub2$`Log2change`
-Importance_Gut_sub3 <- left_join(Importance_Gut_sub2, df.pa.gut.C1_sub, by="OTU")
-rownames(Importance_Gut_sub3) <- rownames(Importance_Gut_sub2)
-cbPalette <- c("navy", "paleturquoise4",  "violetred3", "skyblue1", "goldenrod3", "black", "grey")
-
-Importance_Gut_sub3 <- Importance_Gut_sub3[order(-Importance_Gut_sub3$Importance),]
-Importance_Gut_sub3$taxonomy.Family[is.na(Importance_Gut_sub3$taxonomy.Family)] <- "_milk"
-Importance_Gut_sub3$taxonomy.Phylum[is.na(Importance_Gut_sub3$taxonomy.Phylum)] <- "_milk" #prevalence
-Importance_Gut_sub3$prevalence[is.na(Importance_Gut_sub3$prevalence)] <- 10
-Importance_Gut_sub3 <- head(Importance_Gut_sub3, 20)
-
-Importance_Gut_sub3_Gut <- subset(Importance_Gut_sub3, Trajectory == "Prevalence Trajectory")
-Combined_importance_Prev <- ggplot(Importance_Gut_sub3_Gut,aes(y=reorder(OTU, Importance),x=Importance))+
-  geom_point(aes(size=prevalence, color=Phylum))+theme_bw()+theme(axis.title.y =element_blank()) + 
-  scale_color_manual(values = cbPalette) + labs(x="Importance")
-
-tiff(file = "Fig_5_G_Importance.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Combined_importance
+tiff(file = paste0(path, "Figures/Fig_5D_SCFA_Metabs_BFAsthma.tiff"), width = 1600, height = 2700, units = "px", res = 300)
+plot_grid(vis_plots_bf[[1]], vis_plots_bf[[2]], vis_plots_bf[[4]], vis_plots_bf[[7]], ncol = 1)
 dev.off()
-```
 
-```{r}
-Gut_ROC_plot <- ggplot() +
-  geom_roc(aes(d = True, m = Predicted, color="1"), roc_curves_Gut_trajectories_milk_components, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="2"), roc_curves_Gut_trajectories, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="3"), roc_curves_Gut_microbes_3_months, n.cuts = 0) +
-  geom_roc(aes(d = True, m = Predicted, color="4"), roc_curves_Gut_microbes_1_year, n.cuts = 0) +
-  geom_line(aes(x,x), size = 0.2) + theme_bw() + labs(x = "False Positive fraction",
-                                                      y = "True Positive fraction") + theme_bw(base_size=12)
-tiff(file = "Fig_5_G_ROC_plot.tiff", width = 1500, height = 900, units = "px", res = 300) 
-Gut_ROC_plot
+break_seq <- seq(4, 7) ## need to do hack for acetic acid axis to get sizing right
+
+tiff(file = paste0(path, "Figures/Fig_5D_SCFA_Metabs_BFAsthma.tiff"), width = 3500, height = 1450, units = "px", res = 300)
+plot_grid(vis_plots_bf[[2]], vis_plots_bf[[7]],
+          vis_plots_bf[[4]], 
+          vis_plots_bf[[1]] + scale_y_continuous(breaks = break_seq, labels = paste0("     ", break_seq)), ncol = 2)
 dev.off()
 ```

@@ -1,290 +1,522 @@
 ---
-title: "The trajectories of nasal and gut microbiota mediate the association between breastfeeding exclusivity and asthma in separate models (Figure S7)"
+title: "Figure S7. Timing of acquiring microbial functions in the first year of life associated with breastfeeding and asthma (EggNog orthologs)."
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
  
+
+# Figure S7 - PreTCoA on stratified metagenomic functional data - EggNog annotations 
+EC and EggNog analyzed simultaneously, but EggNog specific plots moved to Figure S7 
+**also see Fig_4.Rmd, scripts are the same**
+
+```{r}
 ## Setup 
-
-```{r, message=FALSE, warning=FALSE}
 R.version.string
-library(lavaan); packageVersion('lavaan')
-library(ggplot2); packageVersion('ggplot2')
-library(tidyr); packageVersion('tidyr')
-library(reshape2); packageVersion('reshape2')
+library(phyloseq)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(cowplot)
+library(ggpubr)
+library(stringr)
+library(here)
 
-source("Preprocessing/Functions.R")
+source(paste0(here::here(), "/Functions.R"))
+
+theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
+```
+
+## Read in Metagenomic data 
+```{r}
+# Compiled stratified functional data
+funcs_3M1Y_bin_s <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/MainTaxaFunctionsBinaryTraj_sdf_above10EitherVis_v02.rds"))
+
+names_bestPrevalence_s <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/Ls_MainTaxaFuncs_best_Binary_above10_below90EitherVis_v02.rds"))
+## some issues with number at beginning of strings
+names_bestPrevalence_s$EC <- gsub("^", "X", names_bestPrevalence_s$EC) 
+names_bestPrevalence_s$MetaCyc <- gsub("^\\d", "X1", names_bestPrevalence_s$MetaCyc)
+
+
+# getting sample data
+# taxonomy abudnances maybe used
+Gut_3M1Y_all_filt <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/03_Abund_metagenomic_Trajectory.rds"))
+sdf <- sample_data(Gut_3M1Y_all_filt)
+```
+
+# Prevalence Trajectory Coordinate System & Permutation tests - Comparing Prevalence Trajectories Between Groups 
+funcs_3M1Y_bin_s
+## Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table
+To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
+```{r} 
+# Make dataset for Change in Prevalence from 3M to 1y (always TP2 - TP1) - Also append sdf to the end again - but NOTE that this is per-participant (just merging based on 1 year sampleid row.names but sample(as oppose to participant)-specific metadata is best to ignore)
+
+## proof of subj # in same order in Visit 1 and 3 split - B/C df was ordered by subjectnumber first - below code shouldn't be used unless all are TRUE
+### table(subset(funcs_3M1Y_bin_s$EggNog, Visit == "1 year")$subjectnumber == subset(funcs_3M1Y_bin_s$EggNog, Visit == "3 month")$subjectnumber)
+
+# merge difference b/t timepoints - 1 year minus 3 months for same df - with sample data
+funcs_3M1Y_bin_diff_s <- list()
+for(i in seq(funcs_3M1Y_bin_s)) { 
+  funcs_3M1Y_bin_diff_s[[i]] <- merge(subset(funcs_3M1Y_bin_s[[i]],
+                                             Visit == "1 year", select =  
+                                               intersect(names_bestPrevalence_s[[i]], colnames(funcs_3M1Y_bin_s[[i]]))
+                                             ) - subset(funcs_3M1Y_bin_s[[i]], 
+                                                        Visit == "3 month", 
+                                                        select =  intersect(names_bestPrevalence_s[[i]], colnames(funcs_3M1Y_bin_s[[i]]))
+                                                        ), 
+                                      sdf, by = "row.names")
+  funcs_3M1Y_bin_diff_s[[i]]$Row.names <- NULL
+}
+names(funcs_3M1Y_bin_diff_s) <- names(funcs_3M1Y_bin_s)
+lapply(funcs_3M1Y_bin_diff_s, function(x) ncol(x) - ncol(sdf)) ## good, adds up
+
+
+N_vars <- lapply(funcs_3M1Y_bin_diff_s, function(x) ncol(x) - ncol(sdf)) # number of taxa or vars, to use in downstream 
+N_subj <- lapply(funcs_3M1Y_bin_diff_s, nrow) # number of subjects, to use in downstream
+```
+
+## Asthma at 3 years
+These scripts should also work if there are variable subject N per dataset
+```{r} 
+## input (could also do a loop across list of different variables groups to stratify by) - variable[[i]], Group_X[[i]], Group_Y[[i]], or mapply
+data <- funcs_3M1Y_bin_diff_s # binary trajecotires
+data_0 <-funcs_3M1Y_bin_s # original binary dataset
+variable <- "asthma_3y"
+Group_X <- "Yes" ## exactly as specified in variable
+Group_Y <- "No" ## exactly as specified in variable
+N <- N_vars # number of taxa in df, changing to N for generic "source" code below
+```
+
+```{r} 
+# script
+X <- list()
+Y <- list()
+df.pa <- list()
+for(i in seq_along(data)) {
+  X[[i]] <- data[[i]][data[[i]][[variable]] == Group_X,] %>% .[!is.na(.[[variable]]),]
+  Y[[i]] <- data[[i]][data[[i]][[variable]] == Group_Y,] %>% .[!is.na(.[[variable]]),]
+  df.pa[[i]] <- data.frame(X_P_Change=colSums(X[[i]][1:N[[i]]])*100/nrow(X[[i]]),
+                           Y_P_Change=colSums(Y[[i]][1:N[[i]]])*100/nrow(Y[[i]]),
+                           prevalence=colSums(data_0[[i]][1:N[[i]]])*100/(N_subj[[i]]*2)
+                           ) %>% ## Can add taxa/variable annotations to data.frame as well. Excluding this for now for functions. Might add Taxa origin of function as annotation yet.
+                 mutate(pa.change.diff = Y_P_Change - X_P_Change, vars = row.names(.)) %>% separate(vars, c("Function", "Taxa"), sep = "_")
+}
+names(df.pa) <- names(data)
+  
+# check sample sizes
+lapply(X, nrow)
+lapply(Y, nrow)
+# check n variables
+lapply(df.pa, nrow)
+```
+
+```{r} 
+table(df.pa$EggNog$Taxa)
+
+# Aesthetic things, not important -  make sure colors of taxa are always consistent no matter the number of taxa plotted 
+cols <- c("#58b6ed", "#6aae9c","#9eae6a", "#b55174", "#6a7cae", 
+          "#ae6a7c", "#ae976a", "#142647")
+
+names(cols) <- unique(df.pa$EggNog$Taxa)
+```
+
+Plot Change in Prevalence 
+```{r} 
+# plot components
+x_lab <- list()
+y_lab <- list()
+min_line <- list()
+max_line <- list()
+
+# plot
+PreTCoA <- list()
+
+for(i in seq_along(df.pa)) {
+  
+x_lab[[i]] <- paste(Group_X, " ", variable, " (n=", nrow(X[[i]]), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab[[i]] <- paste(Group_Y, " ", variable, " (n=", nrow(Y[[i]]), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+
+min_line[[i]] <- min(c(min(df.pa[[i]][["X_P_Change"]]), min(min(df.pa[[i]][["Y_P_Change"]]))))
+max_line[[i]] <- max(c(max(df.pa[[i]][["X_P_Change"]]), max(max(df.pa[[i]][["Y_P_Change"]]))))
+
+PreTCoA[[i]] <- ggplot() + 
+  geom_point(data=df.pa[[i]], aes(x=X_P_Change, y=Y_P_Change, color = Taxa, size=prevalence), alpha=0.70) + 
+  xlab(x_lab[[i]]) + ylab(y_lab[[i]]) + 
+  scale_y_continuous(limits=c(min_line[[i]], max_line[[i]]), expand = c(0,0))+
+  scale_x_continuous(limits=c(min_line[[i]], max_line[[i]]), expand = c(0,0))+
+  annotate("segment", x = min_line[[i]], xend = max_line[[i]], y = min_line[[i]], yend = max_line[[i]], colour = "red", linewidth=0.25) + 
+  ggtitle(names(df.pa)[[i]]) + scale_size(range = c(1,5)) + scale_color_manual(values = cols)
+PreTCoA[[i]]
+  
+}
+
+# saving data
+df.pa_original_asthma <- df.pa ## saving original list for asthma first to not lose it
+PreTCoA_asthma <- PreTCoA
+
+PreTCoA_asthma
+```
+
+
+Median change in prevalence by asthma - overall
+```{r} 
+# Asthma
+lapply(df.pa_original_asthma, function(x) round(summary(x[["X_P_Change"]]), 1))
+```
+
+```{r} 
+# No Asthma
+lapply(df.pa_original_asthma, function(x) round(summary(x[["Y_P_Change"]]), 1))
+```
+
+Median change in prevalence by asthma - stratified by Species
+```{r} 
+# Asthma
+lapply(df.pa_original_asthma, function(x) data_summary_V2(x, varname = "X_P_Change", groupnames = "Taxa"))
+```
+
+```{r} 
+# No Asthma
+lapply(df.pa_original_asthma, function(x) data_summary_V2(x, varname = "Y_P_Change", groupnames = "Taxa"))
+```
+
+```{r} 
+# diff in change
+lapply(df.pa_original_asthma, function(x) data_summary_V2(x, varname = "pa.change.diff", groupnames = "Taxa"))
+```
+
+### Permutation test for Prevalence Trajectory analysis 
+**Just assessing for EggNog here**
+```{r} 
+Res_egg_asthma <- perm_func_dfs_v2(X_df = df.pa_original_asthma$EggNog, 
+                                  data = funcs_3M1Y_bin_diff_s$EggNog,
+                                  variable = "asthma_3y", Group_X = "Yes", Group_Y = "No",
+                                  N = N_vars$EggNog)
+
+# global signfiicance?
+original_wilcox_egg_asthma <- Res_ec_asthma$global_res
+original_wilcox_egg_asthma
+
+## Res_per_taxa  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_egg_asthma <- Res_egg_asthma$per_taxa_res
 ```
 
 ```{r}
-theme_set(theme_bw() + theme(strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
+## p_value threshold decision
+p_thresh2 <- 0.01
+
+# sig early
+Res_per_taxa_egg_asthma_early <- subset(Res_per_taxa_egg_asthma, p_value_2 < p_thresh2)
+Res_per_taxa_egg_asthma_early
+
+# sig late
+Res_per_taxa_egg_asthma_late2 <- subset(Res_per_taxa_egg_asthma, p_value < p_thresh2)
+Res_per_taxa_egg_asthma_late2
 ```
 
+## Breastfeeding 
+These scripts should also work if there are variable subject N per dataset
+```{r} 
+## input (could also do a loop across list of different variables groups to stratify by) - variable[[i]], Group_X[[i]], Group_Y[[i]], or mapply
+data <- funcs_3M1Y_bin_diff_s # binary trajecotires
+data_0 <-funcs_3M1Y_bin_s # original binary dataset
+variable <- "BF_status_3m_sampling"
+Group_X <- "No BM" ## exactly as specified in variable
+Group_Y <- "Exclusive" ## exactly as specified in variable
+N <- N_vars # number of taxa in df, changing to N for generic "source" code below
+```
 
-#### Prevalence Trajectory permutation test results generated for individual taxa 
-Results generated in 03_Fig3_4_S4AC_S5_TabS4.Rmd
+```{r} 
+# script
+X <- list()
+Y <- list()
+df.pa <- list()
+for(i in seq_along(data)) {
+  X[[i]] <- data[[i]][data[[i]][[variable]] == Group_X,] %>% .[!is.na(.[[variable]]),]
+  Y[[i]] <- data[[i]][data[[i]][[variable]] == Group_Y,] %>% .[!is.na(.[[variable]]),]
+  df.pa[[i]] <- data.frame(X_P_Change=colSums(X[[i]][1:N[[i]]])*100/nrow(X[[i]]),
+                           Y_P_Change=colSums(Y[[i]][1:N[[i]]])*100/nrow(Y[[i]]),
+                           prevalence=colSums(data_0[[i]][1:N[[i]]])*100/(N_subj[[i]]*2)
+                           ) %>% ## Can add taxa/variable annotations to data.frame as well. Excluding this for now for functions. Might add Taxa origin of function as annotation yet.
+                 mutate(pa.change.diff = Y_P_Change - X_P_Change, vars = row.names(.)) %>% 
+                 separate(vars, c("Function", "Taxa"), sep = "_") 
+}
+names(df.pa) <- names(data)
+  
+# check sample sizes
+lapply(X, nrow)
+lapply(Y, nrow)
+# check n variables
+lapply(df.pa, nrow)
+```
+
+Using same cols vector for colours as asthma plots
+
+Plot Change in Prevalence 
+```{r} 
+# plot components
+x_lab <- list()
+y_lab <- list()
+min_line <- list()
+max_line <- list()
+
+# plot
+PreTCoA <- list()
+
+for(i in seq_along(df.pa)) {
+  
+x_lab[[i]] <- paste(Group_X, " ", variable, " (n=", nrow(X[[i]]), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+y_lab[[i]] <- paste(Group_Y, " ", variable, " (n=", nrow(Y[[i]]), ")\n1 Year - 3 Month Prevalence (%)", sep="")
+
+min_line[[i]] <- min(c(min(df.pa[[i]][["X_P_Change"]]), min(min(df.pa[[i]][["Y_P_Change"]]))))
+max_line[[i]] <- max(c(max(df.pa[[i]][["X_P_Change"]]), max(max(df.pa[[i]][["Y_P_Change"]]))))
+
+PreTCoA[[i]] <- ggplot() + 
+  geom_point(data=df.pa[[i]], aes(x=X_P_Change, y=Y_P_Change, size=prevalence, color = Taxa), alpha=0.75) + 
+  xlab(x_lab[[i]]) + ylab(y_lab[[i]]) + 
+  scale_y_continuous(limits=c(min_line[[i]], max_line[[i]]), expand = c(0,0))+
+  scale_x_continuous(limits=c(min_line[[i]], max_line[[i]]), expand = c(0,0))+
+  annotate("segment", x = min_line[[i]], xend = max_line[[i]], y = min_line[[i]], yend = max_line[[i]], colour = "red", linewidth=0.25) + 
+  ggtitle(names(df.pa)[[i]]) + scale_size(range = c(1,5)) + scale_color_manual(values = cols)
+PreTCoA[[i]]
+  
+}
+
+# saving data
+PreTCoA_bf <- PreTCoA
+df.pa_original.BF <- df.pa ## saving original list for asthma first to not lose it
+
+PreTCoA_bf
+```
+Probably the highly prevalent B. Longum functions in BF infants are from B. infantis - did a check of B. Longum and only B. infantis was associated with breastfeeding. 
+
+**Median change in prevalence by BF**
+```{r} 
+# No BF
+lapply(df.pa_original.BF, function(x) round(summary(x[["X_P_Change"]]), 1))
+```
+
+```{r} 
+# BF
+lapply(df.pa_original.BF, function(x) round(summary(x[["Y_P_Change"]]), 1))
+```
+
+**Median change in prevalence by BF - stratified by Species**
+```{r} 
+# No BM
+lapply(df.pa_original.BF, function(x) data_summary_V2(x, varname = "X_P_Change", groupnames = "Taxa"))
+```
+
+```{r} 
+# BM
+lapply(df.pa_original.BF, function(x) data_summary_V2(x, varname = "Y_P_Change", groupnames = "Taxa"))
+```
+
+```{r} 
+# diff in change
+lapply(df.pa_original.BF, function(x) data_summary_V2(x, varname = "pa.change.diff", groupnames = "Taxa"))
+```
+
+### Permutation test for Prevalence Trajectory analysis 
+**Just assessing for EggNog here**
+```{r} 
+Res_egg_bf <- perm_func_dfs_v2(X_df = df.pa_original.BF$EggNog, 
+                                  data = funcs_3M1Y_bin_diff_s$EggNog,
+                                  variable = "BF_status_3m_sampling", 
+                                  Group_X = "No BM", Group_Y = "Exclusive",
+                                  N = N_vars$EggNog)
+
+# global signfiicance?
+original_wilcox_egg_bf <- Res_egg_bf$global_res
+original_wilcox_egg_bf
+
+## Res_per_taxa  p-value assigned to each taxa; p_value = later in healthy; p_value_2 = earlier in healthy
+Res_per_taxa_egg_bf <- Res_egg_bf$per_taxa_res
+```
+
 ```{r}
-Per_test_df_ls <- readRDS("Output/PermTests/ALL_Permutation_PrevTraj_Res.rds")
+# sig early
+Res_per_taxa_egg_bf_early <- subset(Res_per_taxa_egg_bf, p_value_2 < p_thresh2)
+Res_per_taxa_egg_bf_early
+
+# sig late
+Res_per_taxa_egg_bf_late2 <- subset(Res_per_taxa_egg_bf, p_value < p_thresh2)
+Res_per_taxa_egg_bf_late2
 ```
 
-#### Prevalence Trajectory feature table used for prevalence trajectory analysis 
-Results generated in 03_Fig3_4_S4AC_S5_TabS4.Rmd
+## EggNog overlap b/t functions associated with BF and Asthma
+0.01 - 22 shown - all R. gnavus but many are 'no name'
+```{r} 
+BF_asth3y_egg_01 <- intersect(row.names(Res_per_taxa_egg_bf_late2), row.names(Res_per_taxa_egg_asthma_late2))
+length(BF_asth3y_egg_01) # 295
+
+BF_asth3y_egg_01_2 <- data.frame(BF_asth3y_egg_01) %>% 
+                    separate(BF_asth3y_egg_01, c("Function", "Taxa"), sep = "_")
+
+table(BF_asth3y_egg_01_2$Taxa)
+
+BF_asth3y_egg_01_2
+```
+
+# Generate Figure Panels  
+## Figure S8A - PreTCoA (also Figure 4A)
+Figure 4A - EC annotations (df # 3), Also plotting Figure S8 - EggNogg Annotations (df # 1) and MetaCyc (extra, df # 2)
+```{r} 
+# EC = first row, then EggNog, then MetaCyc
+names(df.pa)
+tiff(file = paste0(path, "Figures/Fig_4A_EC_Fig_S8_EggNog_MetaC_FuncStrataBFAsthma.tiff"),
+     width = 2000, height = 3000, units = "px", res = 300)
+plot_grid(PreTCoA_bf[[3]]+theme(legend.position = "none")+ggtitle("")+
+          labs(x="No BM\n1 Year - 3 Month Prevalence (%)", y="Exclusive BM\n1 Year - 3 Month Prevalence (%)"), 
+          PreTCoA_asthma[[3]]+theme(legend.position = "none")+ggtitle("")+
+          labs(x="Asthma, 3 Years\n1 Year - 3 Month Prevalence (%)", y="No Asthma\n1 Year - 3 Month Prevalence (%)"),
+          PreTCoA_bf[[1]]+theme(legend.position = "none")+ggtitle("")+
+            labs(x="No BM\n1 Year - 3 Month Prevalence (%)", y="Exclusive BM\n1 Year - 3 Month Prevalence (%)"), 
+          PreTCoA_asthma[[1]]+theme(legend.position = "none")+ggtitle("")+
+            labs(x="Asthma, 3 Years\n1 Year - 3 Month Prevalence (%)", y="No Asthma\n1 Year - 3 Month Prevalence (%)"),
+          PreTCoA_bf[[2]]+theme(legend.position = "none")+ggtitle("")+
+            labs(x="No BM\n1 Year - 3 Month Prevalence (%)", y="Exclusive BM\n1 Year - 3 Month Prevalence (%)"), 
+          PreTCoA_asthma[[2]]+theme(legend.position = "none")+ggtitle("")+
+            labs(x="Asthma, 3 Years\n1 Year - 3 Month Prevalence (%)", y="No Asthma\n1 Year - 3 Month Prevalence (%)"), ncol = 2
+          )
+dev.off()
+
+#tiff(file = paste0(path, "Figures/EC_forLegend.tiff"), width = 1500, height = 1500, units = "px", res = 300)
+#PreTCoA_bf[[3]]
+#dev.off()
+
+## also save some plots to get legends (same for asthma and BF but differ b/t types)
+#tiff(file = paste0(path, "Figures/EggNog_forLegend.tiff"), width = 1500, height = 1500, units = "px", res = 300)
+#PreTCoA_bf[[1]]
+#dev.off()
+```
+
+## Figure S7B - EggNog annotation violin plots - overall difference in change in prevalence stratified by species
+Data frame of statistical test and summary statistics
+```{r} 
+# EGGNOG TEST
+df_ls <- split(df.pa_original.BF$EggNog, df.pa_original.BF$EggNog$Taxa)
+df_res_bf <- wilcox.pair.df.loops(df_ls, x_var = "X_P_Change", y_var =  "Y_P_Change",
+                                  x_name = "No BM", y_name = "Exclusive", variable2 = "Breastfeeding\n3 Months")
+
+df_ls <- split(df.pa_original_asthma$EggNog, df.pa_original_asthma$EggNog$Taxa)
+df_res_ast <- wilcox.pair.df.loops(df_ls, x_var = "X_P_Change", y_var =  "Y_P_Change",
+                                  x_name = "Yes", y_name = "No", variable2 = "Asthma\n3 Years")
+
+## df for plot annotations - using pubr formatting
+egg_res_for_plot <- rbind(df_res_bf, df_res_ast)
+# need to match the long df version 
+## so same as plot taxa names ## same group levels
+egg_res_for_plot_2 <- egg_res_for_plot %>% 
+                        mutate(Taxa =  gsub("\\.", " ", Taxa),
+                               variable2 = factor(variable2, 
+                                                  levels = c("Breastfeeding\n3 Months", "Asthma\n3 Years"))
+                               )
+
+# Extra for asthetics - want same y-positions across stratifications by taxa - also need to split by taxa anyway...
+## make y position on plot a function of the overall max
+egg_res_for_plot_ls <- split(egg_res_for_plot_2, egg_res_for_plot_2$Taxa)
+
+# for pval annotation
+# first y-position will be the max of the max values across per-taxa stratified groups - *0.85 
+egg_res_for_plot_ls <- lapply(egg_res_for_plot_ls, 
+                              function(x) {x[["y.position"]] <- max(x[["max"]]*0.90); x})
+
+# make second df for effect size annotation - closer to the minimum
+# names(egg_res_for_plot_ls) == names(df.pa_asthma_bf_egg) # good!
+egg_res_for_plot_ls_2 <- lapply(egg_res_for_plot_ls, function(x) {x[["y.position"]] <- min(x[["min"]]-1); x})
+```
+
+Full long format dataframes for plots 
 ```{r}
-change_3m1y_pa_all <- read.csv(file="Output/Prevalence_Trajectory_Features_N171_G172.csv", row.names = 1) # The first 171 columns are nasal taxa, 172 to end of df is gut
-```
+ ## df for BF plot
+df.pa_original.BF_L <- list()
+for(i in seq(df.pa_original.BF)) {
+  df.pa_original.BF_L[[i]] <- subset(melt(df.pa_original.BF[[i]], measure.vars = c("X_P_Change", "Y_P_Change"))) %>%
+       # making variables to plot - consistent col names vs. asthma
+                                mutate(variable2 = "Breastfeeding\n3 Months",
+                                       Groups = ifelse(variable == "X_P_Change", "No BM", "Exclusive"),
+                                       Taxa = str_to_sentence(gsub("\\.", " ", Taxa)) ## reformatting names - capitalizing first letter too
+                                       )
+}
 
-#### Trajectory Summary variables derived from trajectory analyses & participant metadata
-generated in 00_Processing_Derived_Trajectories.Rmd
-```{r}
-Traj_data_ls <- readRDS("Data_subsets/ALL_Trajectory_Derived_Data.rds") # Derived Trajectory variables 
-```
-
-
-## Variable selection and create data subsets for mediation 
-Using a p-value threshold of p<0.01. Mediation is only really possible when path a (BF --> microbiota trajectory) and path b (microbiota trajectory --> Asthma) are significant; so select taxa for which this is true.
-### Prevalence Trajectories of individual taxa
-```{r}
-# Select individual taxa
-Per_test_df_ls_p0.01 <- lapply(Per_test_df_ls, function(x) {subset(x, p_value <0.01)})
-
-# Taxa significant for breastfeeding and asthma
-## Nasal
-BF_asthma_sig <- intersect(row.names(Per_test_df_ls_p0.01$BF_Nasal), row.names(Per_test_df_ls_p0.01$Ast3y_Nasal))
-BF_asthma_sig
-
-BF_asthma_sig_G <- intersect(row.names(Per_test_df_ls_p0.01$BF_Gut), row.names(Per_test_df_ls_p0.01$Ast3y_Gut))
-BF_asthma_sig_G
-
-# Data subset used from prevalence trajectory feature table
-## gut and nasal in same dataset - pre-pended N and G so do the same with sig taxa vectors
-BF_asthma_sig <- gsub("^", "N_", BF_asthma_sig)
-BF_asthma_sig_G <- gsub("^", "G_", BF_asthma_sig_G)
-
-change_3m1y_pa_Select <- subset(change_3m1y_pa_all, select = c(BF_asthma_sig, BF_asthma_sig_G))
-dim(change_3m1y_pa_Select)
-```
-
-### Trajectory summary variables and participant metadata
-Additionally using the proportion of Late colonizers and the Richness trajectory as summary variables since these were both significantly associated w/t BF and w/t asthma for BOTH nasal and gut (tests in 02_Fig2_S2_S3_S4BD.Rmd)
-```{r}
-# Trajectory variables
-Summ_Trajs_N <- c("Observed_N1y3m", "Late_N1y3m")
-Summ_Trajs_G <- c("Observed_G1y3m", "Late_G1y3m")
-
-# Exposure, outcome, and Covariates used (covariates selected based on associations with Asthma, and with nasal and/or gut microbiota based on Fig. S2A).
-Subj_dt <- c("BF_status_3m_sampling", "asthma_3y", "StudyCenter", "atbx", "birthmode2", "prenatal_smoke", "mom_asthma_ever", "coldsnum_0to3m", "older_sibs_living", "RE_Virus_1y", "older_sibs", "RE_Virus_3m", "age_3m_months", "age_1y_months") ## added some extra covariates not included in final analysis but checked in sensitivity analysis too
+## df for asthma plot
+df.pa_original_asthma_L <- list()
+for(i in seq(df.pa_original_asthma)) {
+  df.pa_original_asthma_L[[i]] <- subset(melt(df.pa_original_asthma[[i]], measure.vars = c("X_P_Change", "Y_P_Change"))) %>%
+       # making variables to plot - consistent col names vs. asthma
+                                mutate(variable2 = "Asthma\n3 Years",
+                                       Groups = ifelse(variable == "X_P_Change", "Yes", "No"),
+                                       Taxa = str_to_sentence(gsub("\\.", " ", Taxa)) ## reformatting names - capitalizing first letter to0
+                                       )
+}
 
 
-# Merge summary variables and metadata
-N_3m1y_otu_sdf3 <- merge( subset(Traj_data_ls$Trajectories_Nasal_to181_Gut_at182, select = c(Summ_Trajs_N, Summ_Trajs_G)), 
-                          subset(Traj_data_ls$Metadata, select = Subj_dt), by="row.names" ) 
-dim(N_3m1y_otu_sdf3)
-```
-
-### Merge Trajectories of individual taxa with Trajectory summary variables and metadata  
-```{r}
-GN_3m1y_all_traj_sdf2 <- merge(N_3m1y_otu_sdf3, change_3m1y_pa_Select, by.x="Row.names", by.y = "row.names")
-nrow(GN_3m1y_all_traj_sdf2) == nrow(N_3m1y_otu_sdf3) # good, still 1707
-names(GN_3m1y_all_traj_sdf2)[names(GN_3m1y_all_traj_sdf2) == "Row.names"] <- "CHILDid" # use correct name for this var
-```
-
-### Make subset for Asthma at 3 year analysis (remove possible asthma)
-```{r}
-GN_3m1y_asthm_traj_sdf <- subset(GN_3m1y_all_traj_sdf2, asthma_3y != "Possible")
-
-## Extra check, number of non-missing values per variable - should be 477 for gut trajectories and 1316 for nasal after removing possible asthma
-lapply(as.list(GN_3m1y_asthm_traj_sdf), function(x) {sum(!is.na(x))})
-```
+## Decided to Rbind to plot these together on second thought
+df.pa_asthma_bf <- list()
+for(i in seq(df.pa_original.BF_L)) {
+  df.pa_asthma_bf[[i]] <- rbind(df.pa_original.BF_L[[i]],  df.pa_original_asthma_L[[i]]) %>%
+                              mutate(variable2 = factor(variable2, levels = c("Breastfeeding\n3 Months", "Asthma\n3 Years")))
+}
+names(df.pa_asthma_bf) <- names(df.pa_original.BF)
+# df.pa_asthma_bf = long format df for plotting
 
 
-## Variable modifications for structural equation model and split data for the 3 main SEM models
-Note that we are using asthma_3y as the outcome, so the  ordered = argument will be used. In this case using 0/1 version vs. categorical factor doesn't make a difference really. 
-From  https://lavaan.ugent.be/ : "When the ordered= argument is used, lavaan will automatically switch to the WLSMV estimator: it will use diagonally weighted least squares (DWLS) to estimate the model parameters, but it will use the full weight matrix to compute robust standard errors, and a mean- and variance-adjusted test statistic." 
-```{r}
-# Different versions of variables used
-GN_3m1y_asthm_traj_sdf$asthma_3y_bin <- ifelse(as.character(GN_3m1y_asthm_traj_sdf$asthma_3y)=="No", 0, 1)
+# keeping colours consistent as previous colours (despite slight diff in order)
+unique(df.pa_asthma_bf[[1]]$Taxa)
+cols # taxa in same order but modified names - space instead of dot
+cols_2 <- cols
+names(cols_2) <- unique(df.pa_original.BF_L[[1]]$Taxa)
 
-### 0 (no BM), 1 (partial), 2 (exclusive)
-GN_3m1y_asthm_traj_sdf$BF_status_3m_sampl_num <- ifelse(as.character(GN_3m1y_asthm_traj_sdf$BF_status_3m_sampling)=="No BM", 0,
-                                                        ifelse(as.character(GN_3m1y_asthm_traj_sdf$BF_status_3m_sampling)=="Partial", 1, 2)) 
+# eggnog
+df.pa_asthma_bf_egg <- split(df.pa_asthma_bf$EggNog, df.pa_asthma_bf$EggNog$Taxa)
 
-### covariates
-GN_3m1y_asthm_traj_sdf$older_sibs_bin <- ifelse(as.character(GN_3m1y_asthm_traj_sdf$older_sibs)=="No older siblings", 0, 1)
-GN_3m1y_asthm_traj_sdf$atbx_bin <- ifelse(GN_3m1y_asthm_traj_sdf$atbx == "Yes", 1, 0)
-GN_3m1y_asthm_traj_sdf$prenatal_smoke_num <- ifelse(GN_3m1y_asthm_traj_sdf$prenatal_smoke == "Yes", 1, 0)
-GN_3m1y_asthm_traj_sdf$birthmode2_num <- ifelse(GN_3m1y_asthm_traj_sdf$birthmode2 == "Caesarean", 1, 0) # Caesarean ==1
-GN_3m1y_asthm_traj_sdf$mom_asthma_num <- ifelse(GN_3m1y_asthm_traj_sdf$mom_asthma_ever == "Yes", 1, 0)
+## using this setup, will have to reorder colours based on these names instead
+cols_3 <- cols_2[match(names(df.pa_asthma_bf_ec), names(cols_2))] # match - target, original names
 
-GN_3m1y_asthm_traj_sdf$RE_Virus_1y_num <- ifelse(GN_3m1y_asthm_traj_sdf$RE_Virus_1y == "R/E", 1, 0) 
-GN_3m1y_asthm_traj_sdf$RE_Virus_3m_num <- ifelse(GN_3m1y_asthm_traj_sdf$RE_Virus_3m == "R/E", 1, 0) ## RE virus at 3m only used for sensitivity analysis
+box_plots_egg <- list()
+for(i in seq_along(df.pa_asthma_bf_egg)) {
+  box_plots_egg[[i]] <- ggplot(df.pa_asthma_bf_egg[[i]], aes(x=Groups, y=value, group=Groups)) + 
+  facet_wrap(~variable2, scales = "free_x") + 
+  geom_jitter(color = cols_3[[i]], shape=16, size=1.5, alpha=0.60, position = position_jitter(width = 0.2)) +
+  geom_violin(trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + 
+  scale_y_continuous(expand=c(0,0)) +
+    labs(y = "", x = "") +
+    ggtitle(names(df.pa_asthma_bf_egg)[[i]]) +
+  theme(axis.text = element_text(size=10), legend.position = "none", strip.text.x = element_text(face = "bold", size = 11), 
+        plot.title = element_text(face = "bold.italic", size = 12)) +
+   stat_pvalue_manual(egg_res_for_plot_ls[[i]], label = "p.cat",  bracket.size = 0, color="black", size = 8) +
+   stat_pvalue_manual(egg_res_for_plot_ls_2[[i]], label = "effect_lab",  bracket.size = 0, color="black", size = 3) 
+# geom_text(data=egg_res_for_plot_ls[[i]], aes(label = effect_lab), x = 1.5, y = -0.2, size = 4)
+} 
+## now can also change order depending on what is wanted...
 
-
-# Add Study Center too - only including Toronto b/c this is the main center that differs from the others and samples were also analyzed first for Toronto, then other centers (so Toronto vs. other centers also treated as a proxy for analysis batch effect)
-GN_3m1y_asthm_traj_sdf$Toronto <- ifelse(GN_3m1y_asthm_traj_sdf$StudyCenter == "Toronto", 1, 0)
-
-# In order to be on the same scale as other variables in the latent construct, must to take Observed and / 10000; for Late, need to /100 
-GN_3m1y_asthm_traj_sdf$N_scaled_Late <- GN_3m1y_asthm_traj_sdf$Late_N1y3m/10
-GN_3m1y_asthm_traj_sdf$N_scaled_Observed_N1y3m <- GN_3m1y_asthm_traj_sdf$Observed_N1y3m/100
-
-GN_3m1y_asthm_traj_sdf$G_scaled_Late <- GN_3m1y_asthm_traj_sdf$Late_G1y3m/10
-GN_3m1y_asthm_traj_sdf$G_scaled_Observed_G1y3m <- GN_3m1y_asthm_traj_sdf$Observed_G1y3m/100
-```
-
-### Subset for multiple mediation - Gut and Nasal together - only include infants that have both gut and nasal trajectory data
-```{r}
-NG_3m1y_asthm_traj_sdf_noNA <- subset(GN_3m1y_asthm_traj_sdf, !is.na(Observed_G1y3m) & !is.na(Observed_N1y3m)) # No NA values for any trajectory variables
-dim(NG_3m1y_asthm_traj_sdf_noNA)
-
-### Extra Check -  N per group for ordered / binary / count variables
-ord_Vars <- colnames(NG_3m1y_asthm_traj_sdf_noNA)[colnames(NG_3m1y_asthm_traj_sdf_noNA) %ni% c("CHILDid", Summ_Trajs_N, Summ_Trajs_G, "age_3m_months",                 "age_1y_months", "N_scaled_Late", "N_scaled_Observed_N1y3m", "G_scaled_Late", "G_scaled_Observed_G1y3m")]
-
-lapply(as.list(subset(NG_3m1y_asthm_traj_sdf_noNA, select = ord_Vars)), function(x) {table(x)})
-```
-
-### Subset for Nasal microbiome trajectory mediation alone 
-```{r}
-N_3m1y_asthm_traj_sdf <- subset(GN_3m1y_asthm_traj_sdf, !is.na(Observed_N1y3m))
-dim(N_3m1y_asthm_traj_sdf)
-```
-
-### Subset for Gut microbome trajectory mediation alone
-```{r}
-G_3m1y_asthm_traj_sdf <- subset(GN_3m1y_asthm_traj_sdf, !is.na(Observed_G1y3m))
-dim(G_3m1y_asthm_traj_sdf)
+## changing order 
+tiff(file = paste0(path, "Figures/Fig_S7B_EggNog_FuncStrataBFAsthma.tiff"), width = 1875, height = 2775, units = "px", res = 300)
+plot_grid(box_plots_egg[[7]], box_plots_egg[[2]], 
+          box_plots_egg[[1]], box_plots_egg[[5]],
+          box_plots_egg[[4]],  box_plots_egg[[3]],
+          box_plots_egg[[6]],  box_plots_egg[[8]], ncol = 2)
+dev.off()
 ```
 
 
-# Main models
+# Save results associated with Figure S7
+```{r} 
+# saved per-taxa res - asthma and BF
+write.csv(Res_per_taxa_egg_asthma, file = paste0(path, "Tables/Res_FigS7_EggNog_StrataAsthmaPreTCo.csv"))
+write.csv(Res_per_taxa_egg_bf, file = paste0(path, "Tables/Res_FigS7_EggNog_StrataBFPreTCo.csv"))
 
-### Nasal and Gut Microbiome Trajectory Latent Constructs - Trajectory Variables used 
-```{r}
-## NASAL Latent construct equation
-micro.vars_N <- c("N_scaled_Observed_N1y3m", "N_scaled_Late", BF_asthma_sig) 
-micro.model_N <- paste0("micro_N =~ ", paste(micro.vars_N, collapse="+"))
-micro.model_N
+# Also save associated result files - csvs with p-values
+write.csv(egg_res_for_plot_2, file = paste0(path, "Tables/Res_FigS7B_EggNog_PairedWilcoxonStrata.csv"))
 
-
-## GUT Latent construct equation
-micro.vars_G <- c("G_scaled_Observed_G1y3m","G_scaled_Late", BF_asthma_sig_G) 
-micro.model_G <- paste0("micro_G =~ ", paste(micro.vars_G, collapse="+"))
-micro.model_G
+# Associated Detailed per-group summary stats
+all_effect_size_perTaxa <- lapply(df.pa_asthma_bf, function(x) data_summary_V2(x, varname = "value", groupnames = c("Taxa", "variable2", "Groups")))
+write.csv(all_effect_size_perTaxa$EggNog, file = paste0(path, "Tables/Res_FigS7B_EggNog_SummaryStatsStrata.csv"))
 ```
 
 
-## NASAL Mediation Model (Figure S7)
-**Model**
-```{r}
-N_Mediation_Mod <- ' 
-    asthma_3y ~ b1 * micro_N + c1 * BF_status_3m_sampl_num + c2 * coldsnum_0to3m + c3 * older_sibs_living + c4 * atbx_bin + c5 * prenatal_smoke_num + c6 * birthmode2_num + c7 * mom_asthma_num + c8 * Toronto  +  c9 * RE_Virus_1y_num
-    
-    micro_N ~  a1 * BF_status_3m_sampl_num + a2 * coldsnum_0to3m + a3 * older_sibs_living + a4* atbx_bin + a5 * prenatal_smoke_num + a6 * birthmode2_num + a7 * mom_asthma_num + a8* Toronto  +  a9 * RE_Virus_1y_num
-    
-#indirect effects
-indirect1 := a1 * b1 # MAIN INDIRECT EFFECT
-indirect2 := a2 * b1
-indirect3 := a3 * b1
-indirect4 := a4 * b1
-indirect5 := a5 * b1
-indirect6 := a6 * b1
-indirect7 := a7 * b1
-indirect8 := a8 * b1
-indirect9 := a9 * b1
-
-# total effects
-total1 := c1 + (a1 * b1)  
-total2 := c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + b1*(a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9)
-'
-```
-
-**Run Model**
-```{r}
-set.seed(38974)
-
-Med_N <- sem(model = paste(micro.model_N, "\n", N_Mediation_Mod),
-            data = N_3m1y_asthm_traj_sdf, ordered = c("asthma_3y")) 
-
-summary(Med_N, fit.measures = TRUE)
-```
-
-**Get standardized estimates and other Model results**
-```{r}
-Med_N_stdEst <- parameterEstimates(Med_N, boot.ci.type = "bca.simple", level = .95, ci = TRUE, standardized = TRUE)
-```
-
-## GUT Mediation Model (Figure S7)
-**Model**
-```{r}
-G_Mediation_Mod <- ' 
-    asthma_3y ~ b1 * micro_G + c1 * BF_status_3m_sampl_num + c2 * coldsnum_0to3m + c3 * older_sibs_living + c4 * atbx_bin + c5 * prenatal_smoke_num + c6 * birthmode2_num + c7 * mom_asthma_num + c8 * Toronto +  c9 * RE_Virus_1y_num
-    
-    micro_G ~  a1 * BF_status_3m_sampl_num + a2 * coldsnum_0to3m + a3 * older_sibs_living + a4* atbx_bin + a5 * prenatal_smoke_num + a6 * birthmode2_num + a7 * mom_asthma_num + a8* Toronto +  a9 * RE_Virus_1y_num
-    
-#indirect effects
-indirect1 := a1 * b1 # MAIN INDIRECT EFFECT
-indirect2 := a2 * b1
-indirect3 := a3 * b1
-indirect4 := a4 * b1
-indirect5 := a5 * b1
-indirect6 := a6 * b1
-indirect7 := a7 * b1
-indirect8 := a8 * b1
-indirect9 := a9 * b1
-
-# total effects
-total1 := c1 + (a1 * b1)  
-total2 := c1 + c2 + c3 + c4 + c5 + c6 + c7 + c8 + c9 + b1*(a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9) 
-'
-```
-
-**Run Model**
-```{r}
-set.seed(38974)
-
-Med_G <- sem(model = paste(micro.model_G, "\n", G_Mediation_Mod),
-            data = G_3m1y_asthm_traj_sdf, ordered = c("asthma_3y")) 
-
-summary(Med_G, fit.measures = TRUE)
-```
-
-**Get standardized estimates and other Model results**
-```{r}
-Med_G_stdEst <- parameterEstimates(Med_G, boot.ci.type = "bca.simple", level = .95, ci = TRUE, standardized = TRUE)
-```
-
-## Merge results for Table S5, these results are also used to generate Figure 6 & Figure S7
-```{r}
-Med_NG_stdEst$Model <- "Main Nasal-Gut model"
-
-Med_N_stdEst$Model <- "Main Nasal model"
-
-Med_G_stdEst$Model <- "Main Gut model"
-
-Update_Combined_SEM_models <- rbind(Med_NG_stdEst, Med_N_stdEst, Med_G_stdEst) # ordered main models first, then extra models
-
-# Terms of interest: Anything with a label, Anything without a label that has a "=~" operation indicating the measurment model, and the only covariance of interest is for the nasal/gut combined model, micro_N	~~	micro_G. 
-
-## SO - Keep only terms of interest in Table S5 (mostly just those with a label)
-Combined_SEM_models_V2 <- subset(Update_Combined_SEM_models, label != "" | (label == "" & op == "=~" ) | (label == "" & lhs == "micro_N" & rhs == "micro_G")) # REMOVE either if label is not present, OR if label is Not Present and op == =~ (latent constructs), then Keep; OR keep if label is not present and lhs == "micro_N" & rhs == "micro_G"
-
-Total_mods <- c("c1+c2+c3+c4+c5+c6+c7+c8+c9+b1*(a1+a2+a3+a4+a5+a6+a7+a8+a9)", "c1+c2+c3+c4+c5+c6+c7+c8+c9+b1*(a1+d2+d3+d4+d5+d6+d7+d8+d9)+b2*(a2+e2+e3+e4+e5+e6+e7+e8+e9)")
-Combined_SEM_models_V2$rhs <- ifelse(Combined_SEM_models_V2$rhs %in% Total_mods,
-                                     "Total model", Combined_SEM_models_V2$rhs)
-
-Combined_SEM_models_V3 <- data.frame(Combined_SEM_models_V2[1:4], round(Combined_SEM_models_V2[5:13], 3), Model=Combined_SEM_models_V2$Model)
-
-library(knitr)
-kable(Combined_SEM_models_V3)
-
-write.csv(Combined_SEM_models_V3, file="Output/TableS5_SEM_Model_Res_Fig6_FigS7.csv")
-```
-
-#### Extra check of measurement model / nasal and gut latent constructs using confirmatory factor analysis (CFA)
-CFI, RMSEA and SRMR are all okay
-```{r}
-NG_measurment_mod <- cfa(model = paste(micro.model_N,"\n", micro.model_G), data=NG_3m1y_asthm_traj_sdf_noNA)
-
-summary(NG_measurment_mod, fit.measures=TRUE)
-```
 

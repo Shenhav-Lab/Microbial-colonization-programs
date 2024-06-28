@@ -12,20 +12,18 @@ knitr::opts_chunk$set(echo = TRUE)
 library(phyloseq); packageVersion('phyloseq')
 library(tidyverse); packageVersion('tidyverse')
 library(reshape2); packageVersion('reshape2')
-```
+library(here)
 
-Read in functions and libraries
-```{r, echo=FALSE}
-source("Functions.R")
+source(paste0(here::here(), "/Functions.R"))
 ```
-
 
 # NASAL PHYLOSEQ OBJECT 1
 
 ## Import OTU table and Taxonomy 
 ```{r}
 #OTU table
-OTU_table <- read.table(file="nasal_input/feature-table-tax_nasal_March2021.txt",header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
+OTU_table <- read.table(paste0(path, "Data/Preprocessing/nasal_input/feature-table-tax_nasal_March2021.txt"),
+                        header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
 
 taxonomy <- data.frame(row.names = row.names(OTU_table), taxonomy=OTU_table$taxonomy)
 
@@ -56,27 +54,27 @@ taxonomy_delim$ASV <- rownames(taxonomy_delim)
 ## inputs
 
 ###  Nasal swab lab data (links sequence ID with sample IDs)
-N_sdf_path <- "nasal_input/metadata/CSswabs_OnlySamples_nov2020_KF.csv"
+N_sdf_path <- "Data/Preprocessing/nasal_input/metadata/CSswabs_OnlySamples_nov2020_KF.csv"
 
 ### IDs AND RUN NUMBERS we have fastq files for
-N_IDs_path <- "nasal_input/metadata/New_CS_SampleIDs_Mar_2021.csv"
+N_IDs_path <- "Data/Preprocessing/nasal_input/metadata/New_CS_SampleIDs_Mar_2021.csv"
 
 ### Control annotations 
-N_cont_path <- "nasal_input/metadata/Control_List_Mar2021_LR_KF_UPDATED.csv"
+N_cont_path <- "Data/Preprocessing/nasal_input/metadata/Control_List_Mar2021_LR_KF_UPDATED.csv"
 
 
 ## read in inputs
 
-nasal_metadata <- read.csv(N_sdf_path)
+nasal_metadata <- read.csv(paste0(path, N_sdf_path))
 dim(nasal_metadata) 
 ### remove unnecessary cols
 nasal_metadata$Addition <- NULL
 
-nasal_Ids <- read.csv(N_IDs_path, row.names = 1)
+nasal_Ids <- read.csv(paste0(path, N_IDs_path), row.names = 1)
 dim(nasal_Ids) 
 colnames(nasal_Ids) <- c("SeqID", "RunID")
 
-control_annotate <- read.csv(N_cont_path)
+control_annotate <- read.csv(paste0(path, N_cont_path))
 ``` 
 
 
@@ -110,7 +108,7 @@ length(setdiff(nasal_metadata$SeqID, nasal_Ids$SeqID)) # 306 Have lab metadata b
 
 ## Save a list of the samples with lab metadata but no fastq sent and send to Laura to verify. 
 nasal_metadata_missing <- subset(nasal_metadata, SeqID %in% setdiff(nasal_metadata$SeqID, nasal_Ids$SeqID))
-write.csv(nasal_metadata_missing, file="output/nasal_LabData_missing_fastq_Mar2021.csv")
+write.csv(nasal_metadata_missing, file=paste0(path, "Data/Preprocessing/output/nasal_LabData_missing_fastq_Mar2021.csv"))
 ### she confirmed that all samples listed were "Not Sent" (No band/DNA, therefore not sent for sequencing).
 ```
 
@@ -163,17 +161,17 @@ nasal_metadata2$LR_neg_annotation <- NULL
 # Loading sample lists provided by May and Myrtha (CHILD & Marck's lab) - double check that they are consistent and consolidate these datasets. Note that slightly different subsets of data were provided in each instance but those samples that overlap should have consistency in timepoints /etc.
 
 # Input
-Original_viral_path <- "nasal_input/metadata/2_02 - Current specimen ID and virus 06Mar2020.csv"
-New_viral_path <- "nasal_input/metadata/1_CHILD Viral Data vMay2020.csv"
-All_N_path <- "nasal_input/metadata/EGCD ALL Nasal Samples_V11Aug2020.csv"
+Original_viral_path <- "Data/Preprocessing/nasal_input/metadata/2_02 - Current specimen ID and virus 06Mar2020.csv"
+New_viral_path <- "Data/Preprocessing/nasal_input/metadata/1_CHILD Viral Data vMay2020.csv"
+All_N_path <- "Data/Preprocessing/nasal_input/metadata/EGCD ALL Nasal Samples_V11Aug2020.csv"
 
 
 #Old and new viral data was provided, and a list of all samples
-All_samples_old <- read.csv(Original_viral_path) # differentiates viral and nasal swabs
+All_samples_old <- read.csv(paste0(path, Original_viral_path)) # differentiates viral and nasal swabs
 
-All_samples <- read.csv(New_viral_path) 
+All_samples <- read.csv(paste0(path, New_viral_path))
 
-Nasal_ALL_new <- read.csv(All_N_path)
+Nasal_ALL_new <- read.csv(paste0(path, All_N_path))
 ```
 
 ```{r, include=FALSE}
@@ -262,7 +260,7 @@ nasal_all_samples <- subset(nasal_all_samples, select = keep_cols)
 colnames(nasal_all_samples)[names(nasal_all_samples) == "Site"] <- "Centre"
 
 # Save this sample list, Send list of samples to May to double check correctness. 
-write.csv(nasal_all_samples, file="output/EGCD_Viral_nasal_data_Compiled_06122_KF.csv")
+write.csv(nasal_all_samples, file=paste0(path, "Data/Preprocessing/output/EGCD_Viral_nasal_data_Compiled_06122_KF.csv"))
 ```
 
 ### Merge this compiled viral data with lab metadata for samples that have microbiome data (nasal_metadata2), and keep ONLY and ALL samples in nasal_metadata2
@@ -281,9 +279,9 @@ nasal_metadata3$Visit <- factor(nasal_metadata3$Visit, levels = c("3 Months", "1
 
 
 ## Add column that distinguishes PFT dataset from overall dataset
-PFT_ls_path <- "nasal_input/metadata/Subjects with nasal m and PFT.csv"
+PFT_ls_path <- "Data/Preprocessing/nasal_input/metadata/Subjects with nasal m and PFT.csv"
 
-PFT_data <- read.csv(PFT_ls_path)
+PFT_data <- read.csv(paste0(path, PFT_ls_path))
 
 ### edit visit column
 colnames(PFT_data)[names(PFT_data) == "event"] <- "Visit"
@@ -327,7 +325,7 @@ setdiff(row.names(nasal_metadata3), colnames(OTU_table))
 colnames(OTU_table) <- gsub("^X", "", colnames(OTU_table))
 
 # Save total nasal metadata before adding to phyloseq object
-write.csv(nasal_metadata3, file="output/Samples_for_nasal_withVirus_060321.csv")
+write.csv(nasal_metadata3, file=paste0(path, "Data/Preprocessing/output/Samples_for_nasal_withVirus_060321.csv"))
 ```
 
 
@@ -345,7 +343,7 @@ physeq
 
 ```{r, include=FALSE}
 # Save/read in Physeq Objs
-saveRDS(physeq, file='output/datasets/physeq_nasal_Closed.rds')
+saveRDS(physeq, file=paste0(path, 'Data/Preprocessing/output/datasets/physeq_nasal_Closed.rds'))
 ```
 
 ## Keep only CHILD swabs to analyze (Removing WER, SA samples & controls not part of study)
@@ -363,7 +361,7 @@ sample_data(physeq_child)$readcount1 <- sample_sums(physeq_child) # same order s
 ```
 
 ```{r, include=FALSE}
-saveRDS(physeq_child, file='output/datasets/phy_nasal_Close_CHILD_March2021.rds')
+saveRDS(physeq_child, file=paste0(path, 'Data/Preprocessing/output/datasets/phy_nasal_Close_CHILD_March2021.rds'))
 ```
 
 
@@ -372,7 +370,8 @@ saveRDS(physeq_child, file='output/datasets/phy_nasal_Close_CHILD_March2021.rds'
 ## Import OTU table and seporate from Taxonomy Column 
 ```{r}
 #OTU table
-OTU_table <- read.table(file="gut_input/gut-feature-table-tax.txt",header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
+OTU_table <- read.table(file=paste0(path, "Data/Preprocessing/gut_input/gut-feature-table-tax.txt"),
+                        header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE, row.names =1)
 colnames(OTU_table) <- gsub("^X", "", colnames(OTU_table)) ## removing prepended "X" from sampleIDs
 
 taxonomy <- data.frame(row.names = row.names(OTU_table), taxonomy=OTU_table$taxonomy)
@@ -398,27 +397,27 @@ taxonomy_delim$ASV <- rownames(taxonomy_delim)
 
 ```{r}
 # Inputs
-gut_sdf_path <- "gut_input/metadata/Gut_Metadata_subjects_matched_shirin_July19_2.txt" # gut sample lab metadata
-gut_Runs_path <- "gut_input/metadata/Stool_IDs_RunID_List.csv" # samples w/t sequencing data
-Blank_sdf_path <- "gut_input/metadata/Blanks_confirmed_per_run.csv" # Blank - RunID link - identified previously based on a master sequencing sheet and the 'location' of each blank ("location" in file names could be matched to master sequencing sheet)
-Blank_name_path <- "gut_input/metadata/BlankNameChange_Jan2019.txt" # blank names were relabeled at some point for demultiplexing (not by me). This is a list of fastq file names for blanks 
-Blank_files_path <- "gut_input/metadata/MANIFEST_Blanks" # name of files sent to me originally for blanks
+gut_sdf_path <- "Data/Preprocessing/gut_input/metadata/Gut_Metadata_subjects_matched_shirin_July19_2.txt" # gut sample lab metadata
+gut_Runs_path <- "Data/Preprocessing/gut_input/metadata/Stool_IDs_RunID_List.csv" # samples w/t sequencing data
+Blank_sdf_path <- "Data/Preprocessing/gut_input/metadata/Blanks_confirmed_per_run.csv" # Blank - RunID link - identified previously based on a master sequencing sheet and the 'location' of each blank ("location" in file names could be matched to master sequencing sheet)
+Blank_name_path <- "Data/Preprocessing/gut_input/metadata/BlankNameChange_Jan2019.txt" # blank names were relabeled at some point for demultiplexing (not by me). This is a list of fastq file names for blanks 
+Blank_files_path <- "Data/Preprocessing/gut_input/metadata/MANIFEST_Blanks" # name of files sent to me originally for blanks
 
 ## any sampleIDs not in lab metadata are not to be analyzed (12 samples)
-gut_metadata <- read.table(gut_sdf_path ,header=TRUE, sep="\t", na.strings="NA", dec=".", strip.white=TRUE)
+gut_metadata <- read.table(paste0(path, gut_sdf_path), header=TRUE, sep="\t", na.strings="NA", dec=".", strip.white=TRUE)
 
-RunIDs <- read.csv(gut_Runs_path)
+RunIDs <- read.csv(paste0(path, gut_Runs_path))
 colnames(RunIDs) <- c("SampleID", "RunID") ##  re-label colnames
 
-Blank_matching <- read.csv(Blank_sdf_path) 
+Blank_matching <- read.csv(paste0(path, Blank_sdf_path))
 Blank_matching$sample_location <- paste(Blank_matching$BlankID, Blank_matching$location, sep = "_") # There are duplicate blank IDs - so adding their "location" to make unique IDs here
 
-Blank_name_changes <- read.table(Blank_name_path, header=FALSE) 
+Blank_name_changes <- read.table(paste0(path, Blank_name_path), header=FALSE) 
 Blank_name_changes$V1 <- NULL ## extra col not needed
 colnames(Blank_name_changes) <- c("per_run", "post_merge") # first filename is the original name per-run; second is the post-merge file names (relabeled at some point upstream)
 Blank_name_changes$sample_location <- gsub("_L001_R1_001.fastq.gz", "", Blank_name_changes$per_run) ## remove unnecessary part of file name, just need section corresponding to IDs. Don't care about "R2" files (only need to match for one of the reads)
 
-Blank_filenames <- read.csv(Blank_files_path)
+Blank_filenames <- read.csv(paste0(path, Blank_files_path))
 ```
 
 ```{r}
@@ -487,7 +486,7 @@ physeq_gut = phyloseq(OTU, TAX, sampledata)
 ```
 
 ```{r, include=FALSE}
-saveRDS(physeq_gut, file='output/datasets/physeq_gut_Closed.rds')
+saveRDS(physeq_gut, file=paste0(path, 'Data/Preprocessing/output/datasets/physeq_gut_Closed.rds'))
 ```
 
 ## Additionally remove 12 samples not to be used for this project
@@ -510,7 +509,7 @@ sample_data(gut_noMissing)$readcount1 <- sample_sums(gut_noMissing) # same order
 ```
 
 ```{r, include=FALSE}
-saveRDS(gut_noMissing, file='output/datasets/physeq_gut_Closed_CHILD.rds')
+saveRDS(gut_noMissing, file=paste0(path, 'Data/Preprocessing/output/datasets/physeq_gut_Closed_CHILD.rds'))
 ```
 
 

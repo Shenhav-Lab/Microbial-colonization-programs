@@ -1,0 +1,473 @@
+---
+title: "Preprocessing Gut Metagenomic sequencing data for trajectory analyses"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Gut metagenomic data overview
+Metadata
+ •  simple_metadata_shotgun.tsv
+
+Species Abundance
+ •  species.table.metaphlan_readcounts_1Mprune.txt
+     •  Samples with less than 1 million reads were removed and all downstream analyses were done using this dataset
+ •  species.table.metaphlan_readcounts.txt
+      • Unfiltered version of abundance data (we will probably not use this data)
+ •  All abundance data are Raw RPK values with no additional normalization
+ •  Recommended (but not done) to remove species represented in fewer than 10% of total samples or less than 0.01% of total abundance. 
+      - For our prevalence analysis, will only use the prevalence filter (10% of total samples) - and will do this on a per-timepoint basis. 
+
+Unstratified functional data
+ •  final_humann_ECnamed_unstratefied.tsv
+ •  final_humann_eggnognamed_unstratefied.tsv
+ •  final_humann_keggnamed_unstratefied.tsv
+ •  final_humann_pathwaynamed_unstratified.tsv
+ •  These datasets are raw RPK values with no additional normalization. Only samples present within the 1M Species table output were kept for functional datasets. Features represented in fewer than 10% of total samples or less than 0.01% of total abundance were removed. 
+ 
+Stratified functional data
+ •  final_cpm_humann_ECnamed_stratefied.tsv (Stratified EC)
+ •	final_cpm_humann_eggnognamed_stratefied.tsv (Stratified Eggnog)
+ •	final_cpm_humann_kegg_stratefied.tsv (Stratified KEGG)
+ •	final_cpm_humann_pathway_stratified.tsv (Stratified Metacyc Pathway)
+ •  Abundances are represented in normalized counts per million (CPM) abundances. Only samples, species, and corresponding functional features present within the final species and unstratified functional datasets were kept in the stratified files.
+
+**Functional data**
+EC (Enzyme Commission) system
+- EC classifies enzymes based on reactions they catalyze
+
+KEGG: Kyoto Encyclopedia of Genes and Genomes (KEGG) 
+- https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-14-112
+
+EggNOG: ‘Evolutionary genealogy of genes: Non-supervised Orthologous Groups’ 
+
+```{r}
+## Setup
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(tidyr); packageVersion('tidyr')
+library(tidyverse); packageVersion('tidyverse')
+library(reshape2); packageVersion('reshape2')
+library(readr); packageVersion('readr')
+library(snakecase)
+library(here)
+
+source(paste0(here::here(), "/Functions.R"))
+```
+
+# Gut metagenomic data - taxonomy & metadata - cleaning & merge
+
+```{r} 
+taxonomy <- read.table(file=paste0(path, "Data/Metagenome_metabolome/species.table.metaphlan_readcounts_1Mprune.txt"), 
+                       header=T, sep="\t", na.strings="NA", dec=".", strip.white=TRUE)
+
+sdf <- read_tsv(file = paste0(path, "Data/Metagenome_metabolome/simple_metadata_shotgun.tsv"))
+```
+
+## Check overlap, Add participant metadata & format data for phyloseq object
+```{r} 
+# Taxonomy table
+taxon_tab <- taxonomy[1:8] 
+row.names(taxon_tab) <- taxon_tab$species
+
+# Feature table
+colnames(taxonomy) <- gsub("^X", "", colnames(taxonomy))
+## check if anything is missing in overlap w/t ids in sdf 
+setdiff(colnames(taxonomy), sdf$SampleID) ## just missing the taxonomy columns, good
+setdiff(sdf$SampleID, colnames(taxonomy)) # 0 good
+
+row.names(taxonomy) <- taxonomy$species
+features <- taxonomy %>% subset(., select = sdf$SampleID)
+dim(features)
+
+# Sample data
+sdf <- as.data.frame(sdf)
+dim(sdf)
+```
+
+Check overlap with 16S rRNA gene sequence data subsets & b/t 3m and 1y metagenomic data
+```{r} 
+## used for prevalence-based analyses
+Rarefy <- readRDS(paste0(path, "Data/Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds"))
+
+Main_data <- subset_samples(Rarefy, (Name == "Nasal Swab Aliquot" | SampleType == "Gut") & 
+             !is.na(BF_status_3m_sampling) & ( SampleType == "Nasal" | SampleType == "Gut" |
+                                                 BF_status_3m_MS_sampling_exact != "No BM") &
+             Visit != "3 Years" & Visit != "5 Years") 
+
+
+sdf_py <- as(sample_data(Main_data), "data.frame")
+
+sdf_py_sp <- split(sdf_py, interaction(sdf_py$SampleType, sdf_py$Visit))
+
+# check overlap 
+sdf_meta_sp <- split(sdf, sdf$Visit) ## 3m and 1y subsets split
+Subj_3m1y <- intersect(sdf_meta_sp$`3 month`$subjectnumber, sdf_meta_sp$`1 year`$subjectnumber)
+length(Subj_3m1y) # 1367 overlapping 
+
+## For our analyses, mostly interested in the 1367 participants that have BOTH 3M and 1Y data for proper matched longitudinal analysis - so check overlap b/t 16S & 3M-1Y paired metagenomic data
+
+# Number of samples overlapping
+overlap_ls <- list()
+for(i in seq_along(sdf_py_sp)) {
+  overlap_ls[[i]] <- length(intersect(sdf_py_sp[[i]][["CHILDid"]], Subj_3m1y))
+}
+names(overlap_ls) <- names(sdf_py_sp)
+overlap_ls 
+
+# Of the 1367 metagenomic samples, number overlaping w/t the different 16S data subsets
+overlap_ls ## 472/767 3M gut; 1042/2290 3M Nasal; 470/758 1Y gut; 920/1922 1Y Nasal
+```
+
+**Match participant metadata to metagenomic data**
+```{r, include=FALSE} 
+# Extra - metadata cleaning
+Nasal_Micro_merged7 <- readRDS(file=paste0(path, "Data/Preprocessing/metadata_input/3FINAL_Full_Cleaned_KF_Modified_Updated-05222021_withSprio"))
+dim(Nasal_Micro_merged7) # metadata for all participants
+
+## cleaned virus data (Cleaning all Virus data.Rmd)
+new_meta_Viral <- read.csv(paste0(path, "Data/Preprocessing/metadata_input/Virus_cleaned_data_frm_Swab_data_July2021v.csv"), row.names = 1)
+
+new_meta_Viral_sp <- split(new_meta_Viral, new_meta_Viral$Visit)
+new_meta_Viral_wide <- merge(new_meta_Viral_sp$`3 Months`, new_meta_Viral_sp$`1 Year`, 
+                             by = "CHILDid", all = TRUE, suffixes = c("_3m", "_1y")) %>% 
+                      subset(., select = c("CHILDid", "RE_Virus_3m", "RE_Virus_1y", "Any_Virus_3m", "Any_Virus_1y")) ## just keeping main variables that may be used
+
+Main_vars <- c("CHILDid", "WheezeTraj", "asthma_3y", "asthma_5y", "atopy3y", "BM_mode_3m", "BF_status_3m_sampling", "BF_12m_sampling", "BF_status_3m_sampling2", "older_sibs", "older_sibs_living", "AwayfromHome_1y", "childgender", "atbx", "Mom_abs_3mo_IV_oral_supp_yn", "Mother_abs_birth_yn", "StudyCenter", "birthmode2", "mom_bmi_best", "mom_age_birth", "Season_1y", "Season_3m", "age_1y_months", "age_3m_months", "prenatal_smoke", "gest_days", "weight_0", "weight_3","weight_12", "race_mom4", "mom_asthma_ever", "mom_atopy", "colds_0to3m", "Fever_6m", "Fever_3m", "Fever_1y", "Solids_3m_sampling", "Smoked_AtHome3m", "Furry_Pets_3m", "coldsnum_0to3m", "coldsnum_6to12m", "mom_smoke_1y", "BF_duration_imp", "EBF_duration") 
+
+## adding milk composition vars just in case but prob wont use
+Main_vars_2 <- c(Main_vars, colnames(Nasal_Micro_merged7)[965:1060], colnames(Nasal_Micro_merged7)[grepl("^milk_norm_", colnames(Nasal_Micro_merged7))])
+Main_vars_2
+
+Nasal_Micro_merged8 <- merge(
+  subset(Nasal_Micro_merged7, select = c(Main_vars_2)),
+  new_meta_Viral_wide, by = "CHILDid", all = TRUE
+)
+
+nrow(Nasal_Micro_merged8) == nrow(Nasal_Micro_merged7)
+
+# post-hoc additions - edit some variables used (didn't do these edits in metadata cleaning .rmd yet)
+Nasal_Micro_merged8$Fever_3m <- ifelse(Nasal_Micro_merged8$Fever_3m == 0, "No", 
+                                       ifelse(Nasal_Micro_merged8$Fever_3m == 1, "Yes", NA))
+Nasal_Micro_merged8$Fever_1y <- ifelse(Nasal_Micro_merged8$Fever_1y == 0, "No",
+                                       ifelse(Nasal_Micro_merged8$Fever_1y == 1, "Yes", NA))
+
+Nasal_Micro_merged8$coldsnum_0to3m <- ifelse(Nasal_Micro_merged8$coldsnum_0to3m == "8888", NA, 
+                                       ifelse(Nasal_Micro_merged8$coldsnum_0to3m == "888", 0, Nasal_Micro_merged8$coldsnum_0to3m))
+
+Nasal_Micro_merged8$older_sibs_living <- ifelse(Nasal_Micro_merged8$older_sibs_living %in% 
+                                                  c("8888", "999"), NA, Nasal_Micro_merged8$older_sibs_living)
+
+
+## Creating Variable for Asthma at 3 years (Probable) that Persists to 5 years (at least possible or probable at 5 years)
+Nasal_Micro_merged8$asthma_3y_5y <- ifelse(Nasal_Micro_merged8$asthma_3y == "Probable" & 
+                                            Nasal_Micro_merged8$asthma_5y %in% c("Possible", "Probable"), "Yes", 
+                                          ifelse(is.na(Nasal_Micro_merged8$asthma_5y) | is.na(Nasal_Micro_merged8$asthma_3y) |
+                                                   Nasal_Micro_merged8$asthma_3y == "Possible", NA, "No"))
+
+## Make the "Probable" Asthma level "Yes" for asthma
+Nasal_Micro_merged8$asthma_3y <- gsub("Probable", "Yes", Nasal_Micro_merged8$asthma_3y)
+Nasal_Micro_merged8$asthma_5y <- gsub("Probable", "Yes", Nasal_Micro_merged8$asthma_5y)
+
+# Also save for future use - child sample data for All participants - completely cleaned for downstream analysis
+write.csv(Nasal_Micro_merged8, file = paste0(path, "Data/Data_subsets/CHILD_metadata_fully_cleaned.csv"))
+```
+
+Add metadata to gut metagenomic sample data - will mostly replicate for records from same participant (b/c it's non-time varying)
+```{r, include=FALSE} 
+sdf_meta <- merge(sdf, Nasal_Micro_merged8, by.x = "subjectnumber", by.y = "CHILDid")
+nrow(sdf_meta) == nrow(sdf) # good
+row.names(sdf_meta) <- sdf_meta$SampleID
+```
+
+### Make phyloseq object, remove Eukaryota and Archaea and filter super rare taxa (in same way we did for 16S rRNA sequencing data)
+```{r, include=FALSE} 
+OTU = otu_table(as.matrix(features), taxa_are_rows=TRUE)
+TAX = tax_table(as.matrix(taxon_tab))
+sampledata = sample_data(sdf_meta)
+
+gut_meta_py = phyloseq(OTU, TAX, sampledata)
+gut_meta_py
+
+## Also removing the one k__Archaea and the few k__Eukaryota mapped taxa & remove super rare taxa present in <0.0001% mean abundance - to better reflect our preprocessing of gut 16S data
+gut_meta_py_02 <- subset_taxa(gut_meta_py, kingdom != "k__Archaea" & kingdom != "k__Eukaryota")
+gut_meta_py_02
+
+gut_meta_py_filt = filter_taxa(gut_meta_py_02, function(x) mean(x) > 0.0001, TRUE) 
+ntaxa(gut_meta_py_filt) # just removed 2 taxa
+```
+
+```{r, include=FALSE}
+## Not used - Extra - Alpha diversity calculations (already a couple filters applied so not as good to use)
+set.seed(60145)
+sample_data(gut_meta_py_filt)$Observed <- estimate_richness(gut_meta_py_filt, measures="Observed")$Observed
+sample_data(gut_meta_py_filt)$Shannon <- estimate_richness(gut_meta_py_filt, measures="Shannon")$Shannon
+```
+
+
+### Sample filters for Main dataset (Used for Prevalence based trajectory analyses)
+
+Remove infants without breastfeeding status information at the time of 3 month sample collection & infants that were never ever breastfed even in hospital (too few infants to stratify)
+```{r}
+sum(is.na(sample_data(gut_meta_py_filt)$BF_status_3m_sampling))
+sum(is.na(sample_data(gut_meta_py_filt)$BF_status_3m_sampling2))
+
+Main_data <- subset_samples(gut_meta_py_filt, BF_status_3m_sampling2 != "Never breastfed") 
+Main_data # will have the 45 NA for BF statu and those never BF removed
+```
+
+```{r} 
+# Exclude Age at sample collection outliers
+Main_data_1 <- subset_samples(Main_data, (age_3m_months < 8 & age_3m_months > 1 & Visit == "3 month") | (age_1y_months < 21 & age_1y_months > 8  & Visit == "1 year")) 
+
+Main_data_1 <- prune_taxa(taxa_sums(Main_data_1)>0, Main_data_1) # removing any taxa not present in this subset 
+
+table(sample_data(Main_data_1)$Visit)
+
+#saveRDS(Main_data_1, file = "out_datasets/02_main_gut_metagenomic_phy.rds")
+```
+
+
+## Microbiota Trajectory Dataset 
+```{r} 
+# Common Subject IDs between milk and nasal samples at 3 months
+Common_3m1yG <- intersect(sample_data(subset_samples(Main_data_1, Visit == "3 month"))$subjectnumber,
+                          sample_data(subset_samples(Main_data_1, Visit == "1 year"))$subjectnumber)
+length(Common_3m1yG) # number of infants w/t both 3M and 1Y sample after metadata based filters = 1306 (prior to filters this is 1367)
+
+Gut_3m1y <- subset_samples(Main_data_1, subjectnumber %in% Common_3m1yG) 
+Gut_3m1y 
+
+# Taxa wanted for prevalence trajectory analyses - present in >10% of samples at EITHER 3 Months or 1 Year 
+Gut_3m_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="3 month"), function(x) sum(x > 0) > (0.10*length(x)), TRUE) ## 51 taxa at 3m
+Gut_1y_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="1 year"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+## 103 at 1 year
+Gut_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(Gut_3m_tax_filt, taxonomic.rank = "species"), 
+                                  get_taxa_unique(Gut_1y_tax_filt, taxonomic.rank = "species")), Gut_3m1y) 
+Gut_3M1Y_all_filt
+
+# saving data
+saveRDS(Gut_3M1Y_all_filt, file = paste0(path, "Data/Metagenome_metabolome/final_datasets/03_Abund_metagenomic_Trajectory.rds"))
+```
+
+
+# Stratified functional data - Clean & merge
+
+```{r, include=FALSE}
+## Read in cleaned metagenomic taxonomy and sample data, also normalize metagenomic counts
+Gut_3M1Y_all_filt <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/03_Abund_metagenomic_Trajectory.rds"))
+Gut_3M1Y_rel_filt <- transform_sample_counts(Gut_3M1Y_all_filt, function(x) x*100 / sum(x) )  
+```
+
+ Read in stratified Functional data
+```{r} 
+# final_humann_eggnognamed_unstratefied.tsv, final_humann_pathwaynamed_unstratified.tsv (MetaCyc), final_humann_ECnamed_unstratefied.tsv
+eggnog <- as.data.frame(read_tsv(file=
+              paste0(path, "Data/Metagenome_metabolome/final_cpm_humann_eggnognamed_stratefied.tsv")
+                        ))
+colnames(eggnog)[colnames(eggnog) == "eggnog"] <- "function_id"
+
+# make unique rownames for ids
+row.names(eggnog) <- paste( to_snake_case(eggnog$function_id, sep_out = "."), to_snake_case(eggnog$Species, sep_out = "."), sep = "_")
+# Make a dicitonary for eggnog stratafied variables
+eggnong_dic <- data.frame(function_id = eggnog$function_id, Species = eggnog$Species, row.names = row.names(eggnog))
+
+# Make dataset - just vars no metadata
+eggnog$function_id <- NULL
+eggnog$Species <- NULL
+eggnog_02 <- as.data.frame(t(eggnog))
+
+
+metacyc <- as.data.frame(read_tsv(file= 
+                paste0(path, "Data/Metagenome_metabolome/final_cpm_humann_pathway_stratified.tsv")
+                        ))
+colnames(metacyc)[colnames(metacyc) == "pathway"] <- "function_id"
+# make unique rownames for ids
+row.names(metacyc) <- paste( to_snake_case(metacyc$function_id, sep_out = "."), to_snake_case(metacyc$Species, sep_out = "."), sep = "_")
+# Make a dicitonary stratafied variables
+metacyc_dic <- data.frame(function_id = metacyc$function_id, Species = metacyc$Species, row.names = row.names(metacyc))
+
+# Make dataset - just vars no metadata
+metacyc$function_id <- NULL
+metacyc$Species <- NULL
+metacyc_02 <- as.data.frame(t(metacyc))
+
+ec <- as.data.frame(read_tsv(file=
+              paste0(path, "Data/Metagenome_metabolome/final_cpm_humann_ECnamed_stratefied.tsv")
+                    ))
+colnames(ec)[colnames(ec) == "EC"] <- "function_id"
+# make unique rownames for ids
+row.names(ec) <- paste(to_snake_case(ec$function_id, sep_out = "."), to_snake_case(ec$Species, sep_out = "."), sep = "_")
+
+# Make a dicitonary stratafied variables
+ec_dic <- data.frame(function_id = ec$function_id, Species = ec$Species, row.names = row.names(ec))
+
+# Make dataset - just vars no metadata
+ec$function_id <- NULL
+ec$Species <- NULL
+ec_02 <- as.data.frame(t(ec))
+
+
+# compile metagenomic data into one List
+funcs <- list(eggnog_02, metacyc_02, ec_02)
+names(funcs) <- c("EggNog", "MetaCyc", "EC")
+lapply(funcs, dim)
+
+# also compile functional data dictionaries 
+func_dictions <- list(eggnong_dic, metacyc_dic, ec_dic)
+names(func_dictions) <- c("EggNog", "MetaCyc", "EC")
+
+saveRDS(func_dictions, paste0(path, "Data/Metagenome_metabolome/Dictionaries_StratifiedFunctions.rds"))
+saveRDS(funcs, paste0(path, "Data/Metagenome_metabolome/Datasets_StratifiedFunctions.rds"))
+```
+
+```{r} 
+# extra checks, number of species that have metagenomic data, number of functional annotations in stratified data
+egg_fun_check_2 <- as.data.frame(t(funcs$EggNog)) %>% mutate(Func_tax = row.names(egg_fun_check)) %>% 
+                        separate(Func_tax, c("Function", "taxa"), sep = "_")
+
+length(unique(egg_fun_check_2$taxa)) # 73
+
+length(unique(egg_fun_check_2$Function)) # 2229
+```
+
+
+```{r} 
+# Keep only samples in Gut_3M1Y_rel_filt (paired 3m, 1y, and went through participant metadata filters - will match species metagenomic data
+
+# also use same sdf as Gut_3M1Y_rel_filt
+sdf <- sample_data(Gut_3M1Y_rel_filt)
+nrow(sdf) # should be n = 2612 after filtering
+
+# keeping only sample IDs in sdf, also merge each dataframe with sdf (actually just need to merge, will automatically remove those not in Gut_3M1Y_rel_filt / sdf)
+funcs_3M1Y <- funcs %>% lapply(., function(x) { merge(x, sdf, by = "row.names") } ) %>% 
+                        lapply(., function(x) {row.names(x) <- x[["Row.names"]]; x } ) %>% 
+                        lapply(., function(x) {x[["Row.names"]] <- NULL; x } ) # Also re-add row.names and remove that column
+# checks - before vs after
+lapply(funcs, dim)
+lapply(funcs_3M1Y, dim)
+```
+
+## select functions from species sharing taxonomy with taxa important based on the 16S analysis - include all taxa identified as delayed with asthma 
+```{r} 
+# JUST SELECTING ASV'S ASSOCIATED WITH ASTHMA THAT ALSO HAVE SPECIES LEVEL RESOLUTION. THERE IS TOO MUCH VARIATION WITHIN A GENUS - TOO MANY SPECIES SELECTED THAT ARE PROBABLY NOT IMPORTANT. 
+taxa_select <- c("Bifidobacterium_longum|Bifidobacterium_bifidum|Clostridioides_difficile|Coprobacillus_cateniformis|Parabacteroides_merdae|Sellimonas_intestinalis|Eubacterium_eligens|Eubacterium_hallii|Ruminococcus_gnavus")
+
+# subset functional data based on 16S results
+func_dictions_select <- list()
+for(i in seq_along(func_dictions)) {
+  func_dictions_select[[i]] <- subset(func_dictions[[i]],  
+                                      grepl(pattern = taxa_select, x = Species))
+}
+names(func_dictions_select) <- names(func_dictions)
+
+# Taxa in Metagenomic Data - At least sharing Genus level taxonomy with ASVs found as later colonizers without asthma (vs with asthma) in 16S data: 
+unique(func_dictions_select$EggNog[["Species"]])
+```
+
+## Subset functional data based on func_dictions_select
+```{r} 
+funcs_3M1Y_select <- list()
+for(i in seq(funcs_3M1Y)) {
+  funcs_3M1Y_select[[i]] <- subset(funcs_3M1Y[[i]], select = c(row.names(func_dictions_select[[i]]), colnames(sdf)))
+}
+names(funcs_3M1Y_select) <- names(funcs_3M1Y)
+lapply(funcs_3M1Y_select, dim)
+```
+
+## Generate summary data for functional data to assess prevalences and overall abundances of funcitonal enzymes / pathways, etc.
+```{r} 
+## instead of melting the dataset and doing a data summary - since this takes so long with massive datasets and all we really need to know is the prevalence (number of non-zeros / total) - just require colsums for > 0 (OR rowsums of transposed data) - will also take awhile but shouldn't fill up memory...
+### Based on how R works (other programs are the same) - it will technically be faster to calculate this after transposing data. 
+
+# First split - want to calc separate per visit
+funcs_3M1Y_select_3m <- lapply(funcs_3M1Y_select, function(x) subset(x, Visit == "3 month"))
+funcs_3M1Y_select_1y <- lapply(funcs_3M1Y_select, function(x) subset(x, Visit == "1 year"))
+names(func_dictions_select)
+names(funcs_3M1Y_select_3m)
+
+# then for both datasets, subset to select just metagenomic vars (remove metadata), then transpose b/c runs faster in this format, then calc prevalences
+## 3 months
+prev_select_3m_02 <- list()
+for(i in seq_along(funcs_3M1Y_select_3m)) {
+  prev_select_3m_02[[i]] <- subset(funcs_3M1Y_select_3m[[i]], select = row.names(func_dictions_select[[i]])) %>% t %>% as.data.frame 
+}
+names(prev_select_3m_02) <- names(funcs_3M1Y_select_3m)
+
+prev_select_3m_03 <- lapply(prev_select_3m_02, function(x) {data.frame(Prevalence = rowSums(x > 0)*100/ncol(x), Visit = "3 month", variable = row.names(x))})
+
+## 1 year
+prev_select_1y_02 <- list()
+for(i in seq_along(funcs_3M1Y_select_1y)) {
+  prev_select_1y_02[[i]] <- subset(funcs_3M1Y_select_1y[[i]], select = row.names(func_dictions_select[[i]])) %>% t %>% as.data.frame 
+}
+names(prev_select_1y_02) <- names(funcs_3M1Y_select_1y)
+
+prev_select_1y_03 <- lapply(prev_select_1y_02, function(x) {data.frame(Prevalence = rowSums(x > 0)*100/ncol(x), Visit = "1 year", variable = row.names(x))})
+
+# merge these together and keep only if Prevalence >10 (b/c of rbind, will keep functions names in df if present in >10 at either 3m or 1y)
+Prev_dta <- list()
+for(i in seq_along(prev_select_3m_03)) {
+  Prev_dta[[i]] <- rbind(prev_select_3m_03[[i]], prev_select_1y_03[[i]])
+}
+
+lapply(Prev_dta, function(x) table(x[["Visit"]]))
+names(Prev_dta) <- names(funcs_3M1Y_select)
+
+## First filt - must be in at least 10% of samples - at either 3m OR 1y
+prev_dta_above10pct <- lapply(Prev_dta, function(x) subset(x, Prevalence > 10))
+lapply(prev_dta_above10pct, function(x) table(x[["Visit"]]))
+
+## 2nd filt - must be in at fewer than 90% of samples - at either 3m OR 1y - Not much at all is removed by this b/c of sparce data. Just doing for presence/absnece analysis purposes
+prev_dta_above10pct_less90pct <- lapply(prev_dta_above10pct, function(x) subset(x, Prevalence < 90))
+lapply(prev_dta_above10pct_less90pct, function(x) table(x[["Visit"]]))
+
+saveRDS(prev_dta_above10pct_less90pct, file = paste0(path, "Tables/Metagenomic_TaxaFunc_Prevalence_byVis.rds"))
+```
+
+## Make list of functions/taxa that will be ideal for prev traj analysis for later ref, and save an abundance and prevalence version of the data with functions in <10% of 3M OR 1Y samples removed + merged with sample data
+```{r} 
+## make lists of functions that will be ideal for prevalence traj analyses for later reference -  present in >10% & <90% of samples at Either 3 months OR 1 year 
+names_bestPrevalence <- lapply(prev_dta_above10pct_less90pct, function(x) unique(x[["variable"]]))
+lapply(names_bestPrevalence, function(x) length(x))
+
+
+## Subset datasets - Keep only variables that are present in names_bestPrevalence
+funcs_3M1Y_sub <- list()
+for(i in seq_along(funcs_3M1Y_select)) {
+  funcs_3M1Y_sub[[i]] <- data.frame(subset(funcs_3M1Y_select[[i]], select = names_bestPrevalence[[i]]),
+                                    subset(funcs_3M1Y_select[[i]], select = colnames(sdf))
+                                    )## also keeping sample metadata!
+  funcs_3M1Y_sub[[i]] <- funcs_3M1Y_sub[[i]][order(funcs_3M1Y_sub[[i]][["subjectnumber"]]),]
+}
+names(funcs_3M1Y_sub) <- names(funcs_3M1Y_select)
+
+## check number of enzymes, adds up to what is expected (the reason almost no enzymes were removed is b/c before data was sent to us, functions in <10% of samples OVERAL/across all 3m and 1y samps together were also removed)
+lapply(funcs_3M1Y_sub, function(x) ncol(x) - ncol(sdf))
+
+
+## verify that dataframe order by pariticipants is resulting in desired effect (checking one df, will be same for all) - Great!
+table(subset(funcs_3M1Y_sub$EggNog, Visit == "1 year")$subjectnumber == subset(funcs_3M1Y_sub$EggNog, Visit == "3 month")$subjectnumber)
+
+
+## Also make a binary version of the data
+make_bin <- function(x) {
+  x2 <- ifelse(x > 0, 1, 0);
+  return(x2)
+}
+
+funcs_3M1Y_bin <- funcs_3M1Y_sub
+for(i in seq_along(funcs_3M1Y_bin)) {
+  funcs_3M1Y_bin[[i]][1:(ncol(funcs_3M1Y_bin[[i]])-ncol(sdf))] <- apply(funcs_3M1Y_bin[[i]][1:(ncol(funcs_3M1Y_bin[[i]])-ncol(sdf))], MARGIN = 2, make_bin)
+}
+
+## save main abundance and prevalence datasets and list of functions best for prev analyses
+saveRDS(funcs_3M1Y_sub, file = paste0(path, "Data/Metagenome_metabolome/final_datasets/MainTaxaFunctionsTraj_sdf_above10EitherVis_v02.rds"))
+saveRDS(funcs_3M1Y_bin, file = paste0(path, "Data/Metagenome_metabolome/final_datasets/MainTaxaFunctionsBinaryTraj_sdf_above10EitherVis_v02.rds"))
+saveRDS(names_bestPrevalence, file = paste0(path, "Data/Metagenome_metabolome/final_datasets/Ls_MainTaxaFuncs_best_Binary_above10_below90EitherVis_v02.rds"))
+```
+
+
+

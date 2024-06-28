@@ -1,5 +1,5 @@
 ---
-title: "Nasal and gut microbiome profiles and trajectories associated with breastfeeding, asthma and other early-life factors (Figure 2)"
+title: "Figure 2. Nasal and gut microbiome profiles and trajectories are associated with breastfeeding, preschool asthma, and other maternal, infant, and environmental factors."
 ---
 
 ```{r setup, include=FALSE}
@@ -14,7 +14,7 @@ R.version.string
 library(phyloseq); packageVersion('phyloseq')
 library(ggplot2); packageVersion('ggplot2')
 library(zCompositions); packageVersion('zCompositions')
-library(dplyr); packageVersion('dplyr')  #  cannot load this after plyr or else data_summary does not work. load dplyr first 
+library(dplyr); packageVersion('dplyr')  
 library(plyr); packageVersion('plyr')
 library(cowplot); packageVersion('cowplot')
 library(vegan); packageVersion('vegan')
@@ -22,19 +22,18 @@ library(tidyr); packageVersion('tidyr')
 library(reshape2); packageVersion('reshape2')
 library(lmPerm); packageVersion('lmPerm')
 library(ggsignif); packageVersion('ggsignif')
+library(ggnewscale); packageVersion('ggnewscale')
+library(here)
 
-source("Preprocessing/Functions.R")
-```
+source(paste0(here::here(), "/Functions.R"))
 
-
-```{r}
 theme_set(theme_bw() + theme(plot.title = element_text(hjust = 0.5,face = "bold"), strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
 ```
 
 **Data subsets used**
 Overall data, not longitudinal
 ```{r} 
-data_NG2 <- readRDS("Data_subsets/Main_UnRarefied_NasalGut_Subset.rds") # non-rarefied version, for redundancy analysis (alpha-diversity in sample data is still generated from rarefied data)
+data_NG2 <- readRDS(paste0(path, "Data/Data_subsets/Main_UnRarefied_NasalGut_Subset.rds")) # non-rarefied version, for redundancy analysis (alpha-diversity in sample data is still generated from rarefied data)
 
 # Overall data, not longitudinal
 table(sample_data(data_NG2)$SampleType, sample_data(data_NG2)$Visit)
@@ -42,19 +41,19 @@ table(sample_data(data_NG2)$SampleType, sample_data(data_NG2)$Visit)
 
 Microbiota Trajectory data
 ```{r}
-Nasal_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Nasal_Trajectory_Subset.rds") # Prevalence dataset
+Nasal_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Nasal_Trajectory_Subset.rds")) # Prevalence dataset
 table(sample_data(Nasal_3M1Y_pa_filt)$Visit)
 
-Gut_3M1Y_pa_filt <- readRDS("Data_subsets/Main_Gut_Trajectory_Subset.rds") # Prevalence dataset
+Gut_3M1Y_pa_filt <- readRDS(paste0(path, "Data/Data_subsets/Main_Gut_Trajectory_Subset.rds")) # Prevalence dataset
 table(sample_data(Gut_3M1Y_pa_filt)$Visit)
 ```
 
 ```{r} 
-Traj_data_ls <- readRDS("Data_subsets/ALL_Trajectory_Derived_Data.rds") # Derived Trajectory variables for the Trajectory subsets
+Traj_data_ls <- readRDS(paste0(path, "Data/Data_subsets/ALL_Trajectory_Derived_Data.rds")) # Derived Trajectory variables for the Trajectory subsets
 ```
 
 
-# Figure 2A Analyses
+# Figure 2A
 
 ## Data processing for the Redundancy analysis in Figure 2A
 
@@ -229,7 +228,12 @@ CLR transformed phyloseq object, 1y gut: py_1y_clr_sub_G
 
 ## Variables to test for static time-points
 ```{r}
-Main_vars <- c("BF_status_3m_sampling", "BF_12m_sampling","RE_Virus", "colds_0to3m", "coldsnum_6to12m","Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter", "Season_3m" , "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke","mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy",  "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+Main_vars <- c("BF_status_3m_sampling", "BF_12m_sampling","RE_Virus", "colds_0to3m", 
+               "coldsnum_6to12m","Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y",
+               "StudyCenter", "Season_3m" , "Season_1y", "atbx", "Mother_abs_birth_yn", 
+               "prenatal_smoke","mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth",
+               "race_mom4", "mom_asthma_ever", "mom_atopy",  "age_3m_months", "age_1y_months",
+               "weight_3", "weight_12", "childgender", "gest_days") 
 ```
 
 
@@ -422,7 +426,8 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, 
+                            CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
 
@@ -484,7 +489,8 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, 
+                             CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
 
@@ -688,7 +694,8 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, 
+                            CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
 
@@ -750,10 +757,10 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value,
+                             CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
-
 ### Combine results
 ```{r}
 # R2 & overall p-value results for RDA, richness & diversity
@@ -762,7 +769,6 @@ merged_univar_1Y <- rbind(P_val_R2, lmp_P_R2s_Obs, lmp_P_R2s_Shan)
 # Alpha-diversity estimates & permuted p-values for richness & diversity models
 merged_div_1Y_Ests <- rbind(lmp_coeff_Obs, lmp_coeff_Shan)
 ```
-
 
 
 ## 3 Month Gut Microbiota
@@ -861,7 +867,6 @@ lmp_Shan_summaries <- lapply(lmp_Shan, FUN= function(x) {summary(x)})
 lmp_Obs_CIs <- lapply(lmp_Obs, FUN= function(x) {confint(x)})
 lmp_Shan_CIs <- lapply(lmp_Shan, FUN= function(x) {confint(x)}) 
 ```
-
 
 (2) Make a cleaned results table for OVERALL model p-values and R2s results 
 ```{r}  
@@ -1017,7 +1022,8 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, 
+                             CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
 
@@ -1220,7 +1226,8 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Obs <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, 
+                            CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
 
@@ -1282,10 +1289,10 @@ lmp_CIs_df2 <- lmp_CIs_df2[order(lmp_CIs_df2$Variable, lmp_CIs_df2$Var1),]
 ## Split data by Var2 and merge with lmp_coeff_df4, these results will be in the same order as lmp_coeff_df4 and same length after this,  x1 will always be the first level, followed by x2 if present, etc.
 lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
 
-lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value, CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
+lmp_coeff_Shan <- data.frame(lmp_coeff_df4, CI_2.5pct=lmp_CIs_df2_sp$`2.5 %`$value,
+                             CI_97.5pct=lmp_CIs_df2_sp$`97.5 %`$value, Variable2=df_Name)
 # CHECK and clean up data, compare Variable of datasets, etc - should be in the same order.
 ```
-
 
 ### Combine results
 ```{r}
@@ -1303,7 +1310,12 @@ Traj data that was in sdf_forAllTrajs & GN_3m1y_all_traj - have the same row nam
 ### Variables to test for Trajectories
 ```{r}
 # Main metadata variables to test
-Main_vars_Traj <- c("BF_status_3m_sampling", "BF_12m_sampling", "RE_Virus_1y", "RE_Virus_3m", "colds_0to3m", "coldsnum_6to12m", "Fever_3m", "Fever_1y", "older_sibs", "AwayfromHome_1y", "StudyCenter","Season_3m", "Season_1y", "atbx", "Mother_abs_birth_yn", "prenatal_smoke",  "mom_smoke_1y", "mom_bmi_best", "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy", "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
+Main_vars_Traj <- c("BF_status_3m_sampling", "BF_12m_sampling", "RE_Virus_1y", "RE_Virus_3m",
+                    "colds_0to3m", "coldsnum_6to12m", "Fever_3m", "Fever_1y", "older_sibs", 
+                    "AwayfromHome_1y", "StudyCenter","Season_3m", "Season_1y", "atbx", 
+                    "Mother_abs_birth_yn", "prenatal_smoke",  "mom_smoke_1y", "mom_bmi_best", 
+                    "birthmode2", "mom_age_birth", "race_mom4", "mom_asthma_ever", "mom_atopy",
+                    "age_3m_months", "age_1y_months", "weight_3", "weight_12", "childgender", "gest_days") 
 
 ### List of Trajectory summary variables to be used for these analysis
 NG_summary <- c("Early_N1y3m", "Late_N1y3m", "Persistent_N1y3m", 
@@ -1334,13 +1346,13 @@ lapply(as.list(sdf_forAllTrajs_sub), levels)
 
 # quick edit to sdf_forAllTrajs_sub, want all numeric variables to be at the end of the dataset - this is just to make summarizing results easier later
 sdf_num <- sdf_forAllTrajs_sub %>% select_if(is.numeric)
-sdf_forAllTrajs_sub <- data.frame(subset(sdf_forAllTrajs_sub, select = setdiff(colnames(sdf_forAllTrajs_sub), colnames(sdf_num))), 
+sdf_forAllTrajs_sub <- data.frame(subset(sdf_forAllTrajs_sub, 
+                                         select = setdiff(colnames(sdf_forAllTrajs_sub), colnames(sdf_num))), 
                      sdf_num)
 
 # dataframes have matching samples in the same orders?
 identical(rownames(GN_3m1y_all_traj_sub), rownames(sdf_forAllTrajs_sub)) # YES, good
 ```
-
 
 (1) Linear model results, obtain p-values and estimates for all variables
 ```{r, include=FALSE}  
@@ -1439,7 +1451,6 @@ lmp_P_R2s1$y_var <- NULL
 Summary_Traj_res <- lmp_P_R2s1
 ```
 
-
 (3)  Beta-estimates (along with the CI and permuted p-values) - Saving as separate more detailed results table
 ```{r} 
 # inputs
@@ -1528,7 +1539,7 @@ lmp_coeff_Traj$y_var <- NULL
 row.names(lmp_coeff_Traj) <- seq(1, dim(lmp_coeff_Traj)[1])
 ```
 
-### Merge and save beta-estimate & permutation p-values (Merge and save R2 and regular p-values in below chunks when making Fig 1C)
+### Merge and save beta-estimate & permutation p-values (Merge and save R2 and regular p-values in later chunk after p-value adjustment)
 Merge R2's and main P-value results
 ```{r}
 ## Nasal individual tps
@@ -1552,7 +1563,7 @@ univar_Overall_Summ_NG <- rbind(univar_Overall_Summ_01, univar_Overall_Summ_G, S
 
 univar_Overall_Summ_NG$Dataset <- factor(univar_Overall_Summ_NG$Dataset, levels = c("3 Months", "1 Year",  "Trajectories"))
 
-write.csv(univar_Overall_Summ_NG, file="Output/Res_For_Fig2A_All_lmp_R2s_mainPvals.csv")
+write.csv(univar_Overall_Summ_NG, file=paste0(path, "Tables/Res_For_Fig2A_All_lmp_R2s_mainPvals.csv"))
 ```
 
 Merge Beta-estimate results
@@ -1574,10 +1585,10 @@ merged_div_Ests_Nasal$SampleType <- "Nasal"
 merged_div_Ests_Gut$SampleType <- "Gut"
 merged_div_Ests_NG <- rbind(merged_div_Ests_Nasal, merged_div_Ests_Gut)
 
-write.csv(merged_div_Ests_NG, file="Output/Res_For_Fig2A_IndividTimePoints_lmp_BetaEst.csv")
+write.csv(merged_div_Ests_NG, file=paste0(path, "Tables/Res_For_Fig2A_IndividTimePoints_lmp_BetaEst.csv"))
 
 # trajectories are already merged for estimates - lmp_coeff_Traj - just save
-write.csv(lmp_coeff_Traj, file="Output/Res_For_Fig2A_Trajectory_lmp_BetaEst.csv")
+write.csv(lmp_coeff_Traj, file=paste0(path, "Tables/Res_For_Fig2A_Trajectory_lmp_BetaEst.csv"))
 ```
 
 ## Figure 2A - Heatmap of factors associated with nasal and gut microbiota summary variables at static timepoints and trajectories
@@ -1620,7 +1631,9 @@ Overall_Sub_NG2$R2_direct <- ifelse(Overall_Sub_NG2$Estimate <0, -(Overall_Sub_N
 Overall_Sub_NG2$R2_direct <- ifelse(is.na(Overall_Sub_NG2$R2_direct), Overall_Sub_NG2$r.squared, Overall_Sub_NG2$R2_direct) # If NA then there was no direction, then just use r.squared and not that direction does not matter for these
 ```
 
+**p-value correction for multiple tests**
 ```{r}
+# Exclude irrelevant tests
 # A number of vars tested are timepoint specific - to simplify plot interpretation, do not show many tests associating 3 month nasal microbiota with 1 year weight for example. We are not interested in outcomes, this initial heatmap is more-so about exposures and therefore aim to mostly show factors influencing microbiota composition at the relevant timepoint.
 
 # Show weight at approx the time of sampling. (also, Showing 3m weight and age and breastfeeding for Trajectories, but Showing 1y R/E virus and 1y season for Traj b/c of much clearer association BUT comment on this in results) ### e.g. remove weight_12 for 3 month dataset and weight_3 for 1 year dataset, and age_1y for 3 M dataset, etc.
@@ -1645,10 +1658,17 @@ Overall_Sub_NG3$R2_direct <- ifelse(Overall_Sub_NG3$Variable %in% c("Fever_1y", 
 Overall_Sub_NG3$p.value <- ifelse(Overall_Sub_NG3$Variable %in% c("Fever_1y", "coldsnum_6to12m") & 
                                     Overall_Sub_NG3$Dataset == "3 Months", NA, Overall_Sub_NG3$p.value)
 
-#table(Overall_Sub_NG3$Variable, Overall_Sub_NG3$Dataset)
+
+# fdr correction per microbial niche (split nasal and gut) - also proportion of persistent/late/early colonizers split as completely separate analysis (and now excluded from results)
+
+Overall_Sub_NG3$Colonization <- ifelse(Overall_Sub_NG3$Variable2 %in% c("Late Colonizers (%) ", "Early Colonizers (%) ", "Late Colonizers (%) "), "yes", "no")
+Overall_Sub_NG3 <- split(Overall_Sub_NG3, interaction(Overall_Sub_NG3$SampleType, Overall_Sub_NG3$Colonization)) %>%
+                            lapply(., function(x) {mutate(x, 
+                                p.value.bh = p.adjust(p.value, method = "BH", n = sum(!is.na(Overall_Sub_NG3$p.value))))}) %>% 
+                            bind_rows(.)
 ```
 
-Other aesthetic edits
+aesthetic edits
 ```{r}
 # Change variable names - after above edit, BF 12m and B 3M can be the same column, Age 3M and age 1Y same column, etc. (but 3m for 3 month dataset and 1 year for 1 y dataset)
 Overall_Sub_NG3$Variable <- Overall_Sub_NG3$Variable %>%
@@ -1664,19 +1684,6 @@ Overall_Sub_NG3$Variable <- Overall_Sub_NG3$Variable %>%
 
 table(Overall_Sub_NG3$Variable, Overall_Sub_NG3$Dataset)
 
-
-#P-value cats, also include a "-" where p-value is NA but as a separate variable - this needs to be a separate geom_text in the heatmap to look right
-Overall_Sub_NG3$category <-  ifelse(Overall_Sub_NG3$p.value<0.001, "**",
-                                    ifelse(Overall_Sub_NG3$p.value>=0.001 & Overall_Sub_NG3$p.value<0.05, "*", ""))
-                                       
-
-Overall_Sub_NG3$category2 <- ifelse(is.na(Overall_Sub_NG3$p.value), "-", "")
-  
-
-# R2 as Percentage (% variation explained)
-Overall_Sub_NG3$`Variation explained (%)` <- Overall_Sub_NG3$R2_direct*100
-
-
 # Make a space at the end so labels aren't touching border of heatmap & rename some variables
 Overall_Sub_NG3$Variable2 <- revalue(Overall_Sub_NG3$Variable2, c("Microbiota composition (RDA)"= "Microbiota Composition # ", "Microbiota Diversity"="Microbiota Diversity ",  "Microbiota Richness"="Microbiota Richness ", "Observed_N1y3m"="Richness Trajectory ", "Observed_G1y3m"="Richness Trajectory ", "Shannon_N1y3m"="Diversity Trajectory ", "Shannon_G1y3m"="Diversity Trajectory ", "Early_N1y3m"="Early Colonizers (%) ", "Persistent_N1y3m"="Persistent Colonizers (%) ", "Late_N1y3m"="Late Colonizers (%) ",  "Early_G1y3m"="Early Colonizers (%) ", "Persistent_G1y3m"="Persistent Colonizers (%) ", "Late_G1y3m"="Late Colonizers (%) ")) # Note that we also need Richness and Diversity trajectories and colonization patterns to be named the same regardless if in nasal or gut for the heatmap so editing that here too.
 
@@ -1691,39 +1698,67 @@ Overall_Sub_NG3$Variable <- factor(Overall_Sub_NG3$Variable, levels = c("Breastf
 Overall_Sub_NG3$Variable <- revalue(Overall_Sub_NG3$Variable, c("RE_Virus" = 'R/E Virus', "colds_0to3m" = "Colds, 0-3m", "coldsnum_6to12m" = "Colds, 6-12m", "Fever_3m" = "Fever, 0-3m", "Fever_1y" = "Fever, 6-12m", "older_sibs" = "Siblings", "AwayfromHome_1y" = "Daycare, 1y", "StudyCenter" = "# StudyCenter", "Season" = "# Season", "Mother_abs_birth_yn" = "Antibiotics, Birth", "atbx" = "Antibiotics, 1y", "prenatal_smoke" = "Prenatal Smoke", "mom_smoke_1y" = "Mother, Smoke, 1y", "mom_bmi_best" = "Mother, BMI", "birthmode2" = "C-section", "mom_age_birth" = "Mother, Age", "race_mom4" = "# Mother, Ethnicity", "mom_asthma_ever" = "Mother, Asthma", "mom_atopy" = "Mother, Atopy", "childgender" = "Sex (male)", "gest_days" = "Gestational Age") )
 
 levels(Overall_Sub_NG3$Variable) 
-
-Overall_Sub_NG3$Dataset <- factor(Overall_Sub_NG3$Dataset, levels = c("3 Months", "1 Year",  "Trajectories"))
-
-Overall_Sub_NG3$SampleType <- factor(Overall_Sub_NG3$SampleType, levels = c("Nasal", "Gut"))
-
-# save cleaned summary of compiled results included in heatmap
-write.csv(Overall_Sub_NG3, file="Output/Fig2A_Res_Summary_lmp.csv")
 ```
 
+```{r}
+# 1.  Variation explained (%): Colour gradient difficult to do well in ggplot2 when there's outliers that are out of the range of other results. Most associations are <0.68% variation explained but a few are ~7% - Max out at 4% and then MAKE SURE the legend specifies that the max color means >=4% in final version. 4 is really >=4
 
-### Summary heatmap - just showing summary stats and signficant covariates and milk composition 
+Overall_Sub_NG4 <- Overall_Sub_NG3 %>% mutate( 
+                                    # 1. R2 as Percentage (% variation explained) with 4 as max
+                                    `Variation explained (%)` = ifelse(R2_direct*100 > 4, 4, 
+                                                                       ifelse(R2_direct*100 < -4, -4,
+                                                                              R2_direct*100)),
+                                    # 2. Not showing effect direction where irrelevant (RDA and nominal factors w/t >2 levels) 
+                                    Var_nodirection = ifelse(grepl("\\#", Variable2) | 
+                                                            grepl("\\#", Variable), `Variation explained (%)`, NA),
+                                    ## original was p.value and limit of 0.001 and 0.05. 
+                                    category = ifelse(p.value.bh<0.01, "**",
+                                                      ifelse(p.value.bh>=0.01 & p.value.bh<0.05, "*", "")),
+                                    ## splitting off from cat b/c need diff position on plot
+                                    category1 = ifelse(p.value.bh>=0.05 & p.value<0.05, "~", ""),
+
+    #P-value cats, also include a "-" where p-value is NA but as a separate variable - this needs to be a separate geom_text in the heatmap to look right   
+                                    category2 = ifelse(is.na(p.value), "-", ""),
+                                    Dataset = factor(Dataset, levels = c("3 Months", "1 Year",  "Trajectories")),
+                                    SampleType = factor(SampleType, levels = c("Nasal", "Gut"))
+                                    )
+
+
+
+# save compiled results included in heatmap 
+write.csv(Overall_Sub_NG4, file=paste0(path, "Tables/Fig2A_Res_Summary_lmp.csv"))
+## R version for maintaining factor lvs
+saveRDS(Overall_Sub_NG4, file=paste0(path, "Tables/Fig2A_Res_Summary_lmp.rds"))
+####Overall_Sub_NG4 <- readRDS(file=paste0(path, "Tables/Fig2A_Res_Summary_lmp.rds"))
+```
+
+### Summary heatmaps - variation explained for breastfeeding and main early-life factors 
+Data subsets - splitting up to align plots better downstream & move Early/Persistent/Late colonizer analysis to supplement
 ```{r} 
-summary(Overall_Sub_NG3$`Variation explained (%)`)
-## Colour gradient really difficult to do well in ggplot2 when there's outliers that are way out of the range of other results. Most associations are <0.68% variation explained but a few are ~7% - Max out at 4% and then MAKE SURE the legend specifies that the max color means >=4% in final version
-Overall_Sub_NG3$`Variation explained (%)` <- ifelse(Overall_Sub_NG3$`Variation explained (%)` > 4, 4, 
-                                                  ifelse(Overall_Sub_NG3$`Variation explained (%)` < -4, -4, Overall_Sub_NG3$`Variation explained (%)`)) 
+# for specific timepont plots - nasal and gut
+Overall_NG4_tp <- subset(Overall_Sub_NG4, Variable2 %ni% c("Late Colonizers (%) ", "Persistent Colonizers (%) ", "Early Colonizers (%) ", "Richness Trajectory ", "Diversity Trajectory "))
+Overall_NG4_tp$Variable2 <- droplevels(Overall_NG4_tp$Variable2)
+Overall_N_tps <- subset(Overall_NG4_tp, SampleType == "Nasal")
+Overall_G_tps <- subset(Overall_NG4_tp, SampleType == "Gut")
+
+# for trajectory plots - nasal and gut
+Overall_NG4_traj <- subset(Overall_Sub_NG4, Variable2 %in% c("Richness Trajectory ", "Diversity Trajectory "))
+Overall_NG4_traj$Variable2 <- droplevels(Overall_NG4_traj$Variable2)
+Overall_N_traj <- subset(Overall_NG4_traj, SampleType == "Nasal")
+Overall_G_traj <- subset(Overall_NG4_traj, SampleType == "Gut")
 ```
 
 ```{r} 
-# Decided post-hoc to split Early/Persistent/Late colonizers - Moving this to supplementary Fig S2C
-Overall_NG4 <- subset(Overall_Sub_NG3, Variable2 %ni% c("Late Colonizers (%) ", "Persistent Colonizers (%) ", "Early Colonizers (%) "))
+## p-values to enter into manuscript - univariate results
+subset(Overall_NG4_tp, select = c("Variable", "Variable2", "Dataset", "p.value.bh", "SampleType", "Variation explained (%)"), Variable == "Breastfeeding") %>% 
+                      mutate(p.value.bh = round(p.value.bh, 3))
 
-## use to make supplementary plot later
-ColPats_NG4 <- subset(Overall_Sub_NG3, Variable2 %in% c("Late Colonizers (%) ", "Persistent Colonizers (%) ", "Early Colonizers (%) "))
+subset(Overall_NG4_traj, select = c("Variable", "Variable2", "Dataset", "p.value.bh", "SampleType", "Variation explained (%)"), Variable == "Breastfeeding") %>% 
+                      mutate(p.value.bh = round(p.value.bh, 3))
 ```
 
 ```{r, fig.width=15, fig.height=12, warning=FALSE} 
 # The only reason I'm splitting this up now is so that the heights of each plot differ to get the size of each square the same. Otherwise I would just plot Overall_NG4 all at once and facet by SampleType*Dataset
-Overall_N_tps <- subset(Overall_NG4, SampleType == "Nasal" & Dataset != "Trajectories")
-Overall_N_traj <- subset(Overall_NG4, SampleType == "Nasal" & Dataset == "Trajectories")
-
-Overall_G_tps <- subset(Overall_NG4, SampleType == "Gut" & Dataset != "Trajectories")
-Overall_G_traj <- subset(Overall_NG4, SampleType == "Gut" & Dataset == "Trajectories")
 
 ## gradient scale
 labels_grad <- c("<-4", "-3", "-2", "-1", "0", "1", "2", "3", ">4")
@@ -1734,55 +1769,105 @@ lims_grad <- c(-4, 4)
 r <- 2 # right margin edit
 t <- 0.1 # top margin edit
 
-PLOT_pt1 <- ggplot(Overall_N_tps, aes(Variable, Variable2, fill=`Variation explained (%)`)) +
-  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") + geom_tile(height=0.8, width=0.8) +
-  scale_fill_gradient2(low="#0056cf", mid="white",  high="#d63200", midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
-  geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
-  geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
-  theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
-        axis.text.x=element_blank(), 
-        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), plot.margin = unit(c(t, r, 0, 0), "cm")) + 
-  labs(fill = "Variation\nexplained (%)") 
+ ## using ggnewscale for greyscale: https://stackoverflow.com/questions/63493795/r-ggplot-heatmap-with-multiple-rows-having-separate-legends-on-the-same-graph
 
-PLOT_pt2 <- ggplot(Overall_N_traj, aes(Variable, Variable2, fill=`Variation explained (%)`)) +
-  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") + geom_tile(height=0.8, width=0.8) +
-  scale_fill_gradient2(low="#0056cf", mid="white",  high="#d63200", midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
-  geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
-  geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
-  theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
-        axis.text.x=element_blank(), 
-        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), legend.position = "none", plot.margin = unit(c(t, r, 0, 0), "cm")) + 
-  labs(fill = "Variation\nexplained (%)") 
+df <- Overall_N_tps
+PLOT_pt1 <- ggplot(data = df, aes(Variable, Variable2)) + 
+  geom_tile(data = subset(df, is.na(Var_nodirection)), aes(fill=`Variation explained (%)`), height=0.8, width=0.8) +
+  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") +
+  scale_fill_gradient2("Variation\nExplained (%)\n& Effect Direction", low="#0056cf", mid="white",  high="#d63200",
+                       midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
+  new_scale_fill() + 
+  geom_tile(data = subset(df, !is.na(Var_nodirection)), 
+            aes(fill=Var_nodirection), height=0.8, width=0.8) +
+  scale_fill_gradient2("Variation\nExplained (%)\nNo Direction",  low = "white", mid = "grey", high = "black",
+                      midpoint = 2, limits=c(0, max(lims_grad)), breaks=breaks_grad[5:9], labels = labels_grad[5:9]) +
 
-PLOT_pt3 <- ggplot(Overall_G_tps, aes(Variable, Variable2, fill=`Variation explained (%)`)) +
-  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") + geom_tile(height=0.8, width=0.8) +
-  scale_fill_gradient2(low="#0056cf", mid="white",  high="#d63200", midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
   geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
+  geom_text(aes(label=category1), size=4, nudge_y = 0.08) + 
   geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
+
   theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
         axis.text.x=element_blank(), 
-        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), legend.position = "none", plot.margin = unit(c(t, r, 0, 0), "cm")) + 
-  labs(fill = "Variation\nexplained (%)") 
+        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), plot.margin = unit(c(t, r, 0, 0), "cm"),
+        legend.title = element_text(face = "bold")) + scale_y_discrete(drop = FALSE) + scale_x_discrete(drop = FALSE)
+PLOT_pt1
+
+df <- Overall_N_traj
+PLOT_pt2 <- ggplot(df, aes(Variable, Variable2)) +
+  geom_tile(data = subset(df, is.na(Var_nodirection)), aes(fill=`Variation explained (%)`), height=0.8, width=0.8) +
+  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") +
+  scale_fill_gradient2("Variation\nexplained (%)\n& Effect Direction", low="#0056cf", mid="white",  high="#d63200",
+                       midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
+  new_scale_fill() + 
+  geom_tile(data = subset(df, !is.na(Var_nodirection)), 
+            aes(fill=Var_nodirection), height=0.8, width=0.8) +
+  scale_fill_gradient2("Variation\nexplained (%)\nNo Direction",  low = "white", mid = "grey", high = "black",
+                      midpoint = 2, limits=c(0, max(lims_grad)), breaks=breaks_grad[5:9], labels = labels_grad[5:9]) +
+
+  geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
+  geom_text(aes(label=category1), size=4, nudge_y = 0.08) + 
+  geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
+
+  theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
+        axis.text.x=element_blank(), 
+        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), plot.margin = unit(c(t, r, 0, 0), "cm"),
+        legend.position = "none") + scale_y_discrete(drop = FALSE) + scale_x_discrete(drop = FALSE)
+
+
+df <- Overall_G_tps
+PLOT_pt3 <- ggplot(df, aes(Variable, Variable2)) +
+  geom_tile(data = subset(df, is.na(Var_nodirection)), aes(fill=`Variation explained (%)`), height=0.8, width=0.8) +
+  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") +
+  scale_fill_gradient2("Variation\nexplained (%)\n& Effect Direction", low="#0056cf", mid="white",  high="#d63200",
+                       midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
+  new_scale_fill() + 
+  geom_tile(data = subset(df, !is.na(Var_nodirection)), 
+            aes(fill=Var_nodirection), height=0.8, width=0.8) +
+  scale_fill_gradient2("Variation\nexplained (%)\nNo Direction",  low = "white", mid = "grey", high = "black",
+                      midpoint = 2, limits=c(0, max(lims_grad)), breaks=breaks_grad[5:9], labels = labels_grad[5:9]) +
+
+  geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
+  geom_text(aes(label=category1), size=4, nudge_y = 0.08) + 
+  geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
+
+  theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
+        axis.text.x=element_blank(), 
+        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), plot.margin = unit(c(t, r, 0, 0), "cm"),
+        legend.position = "none") + scale_y_discrete(drop = FALSE) + scale_x_discrete(drop = FALSE)
+
 
 # this is the only plot that needs the x-axis text - will be exactly the same across plots
-PLOT_pt4 <- ggplot(Overall_G_traj, aes(Variable, Variable2, fill=`Variation explained (%)`)) +
-  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") + geom_tile(height=0.8, width=0.8) +
-  scale_fill_gradient2(low="#0056cf", mid="white",  high="#d63200", midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
+df <- Overall_G_traj
+PLOT_pt4 <- ggplot(df, aes(Variable, Variable2)) +
+  geom_tile(data = subset(df, is.na(Var_nodirection)), aes(fill=`Variation explained (%)`), height=0.8, width=0.8) +
+  facet_wrap(~SampleType*Dataset, ncol = 1, scales = "free_y") +
+  scale_fill_gradient2("Variation\nexplained (%)\n& Effect Direction", low="#0056cf", mid="white",  high="#d63200",
+                       midpoint = 0, limits=lims_grad, breaks=breaks_grad, labels = labels_grad) +
+  new_scale_fill() + 
+  geom_tile(data = subset(df, !is.na(Var_nodirection)), 
+            aes(fill=Var_nodirection), height=0.8, width=0.8) +
+  scale_fill_gradient2("Variation\nexplained (%)\nNo Direction",  low = "white", mid = "grey", high = "black",
+                      midpoint = 2, limits=c(0, max(lims_grad)), breaks=breaks_grad[5:9], labels = labels_grad[5:9]) +
+
   geom_text(aes(label=category), size=6, nudge_y = -0.14) + 
+  geom_text(aes(label=category1), size=4, nudge_y = 0.08) + 
   geom_text(aes(label=category2), size=6, nudge_y = 0.08) + 
+
   theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
         axis.text.x=element_text(size=10, angle=30, vjust=1, hjust=1, color = "black"), 
-        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), legend.position = "none", plot.margin = unit(c(t, r, 0, 0), "cm")) + 
-  labs(fill = "Variation\nexplained (%)") 
+        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank(), plot.margin = unit(c(t, r, 0, 0), "cm"),
+        legend.position = "none") + scale_y_discrete(drop = FALSE) + scale_x_discrete(drop = FALSE)
+
 
 # Row annotation
-Var_list <- levels(Overall_NG4$Variable)
+Var_list <- levels(df$Variable)
 Var_Categories <- data.frame(Variable=Var_list, 
                              Factors= c(rep("Infant feeding", 1), rep("Infection", 5), rep("Interaction", 2),
                                         rep("Region/Season", 2), rep("Medication", 2), rep("Smoke", 2), rep("Maternal", 6), rep("Infant", 4)))
 
 ## Make sure factor levels are in the same order as the main heatmap, copy/paste level order
-Var_Categories$Variable <- factor(Var_Categories$Variable, levels = levels(Overall_NG4$Variable))
+Var_Categories$Variable <- factor(Var_Categories$Variable, levels = levels(df$Variable))
 
 
 Var_Categories$Factors <- factor(Var_Categories$Factors, levels = c("Infant feeding", "Infection", "Interaction", "Region/Season", "Medication", "Smoke", "Maternal", "Infant"))
@@ -1795,34 +1880,340 @@ Row_annotation1 <- ggplot(Var_Categories) +
 Row_annotation <- Row_annotation1 + theme(legend.position = "none")
 
 # saving the legend separately 
-legend_F2A <- plot_grid(get_legend(PLOT_pt1), ncol = 1)
+legend_F2A <- plot_grid(get_legend(addSmallLegend(PLOT_pt1 + theme(legend.title = element_text(size = 11)),  pointSize = 1.5, spaceLegend = 0.8, textSize = 6)), ncol = 1) # addSmallLegend
 
 # Removing legend from plot 1
 PLOT_pt1_2 <- PLOT_pt1 + theme(legend.position = "none")
 
 # plotting
-F2A_plot <- plot_grid(PLOT_pt1_2, PLOT_pt2, PLOT_pt3, PLOT_pt4, Row_annotation, align = "v", ncol = 1, axis = "tb", rel_heights = c(15, 5.2, 15, 10, 0.9))
-F2A_plot # ignore warning about missing values - these are the NA values intentionally added into dataset (for dashed cells)
+F2A_plot <- plot_grid(PLOT_pt1_2, PLOT_pt2, PLOT_pt3, PLOT_pt4, Row_annotation, 
+                      align = "v", ncol = 1, axis = "tb", rel_heights = c(15, 5.2, 15, 10, 0.9)) 
+ # ignore warning about missing values - these are the NA values intentionally added into dataset (for dashed cells)
+
+plot_grid(F2A_plot, legend_F2A, ncol = 2, rel_widths = c(1, 0.1))
 ```
 
-```{r} 
-legend_F2A
-```
 
 ```{r, include=FALSE} 
-tiff(file = "Figures/Fig_2A.tiff", width = 3050, height = 2000, units = "px", res = 300)
+tiff(file = paste0(path, "Figures/Fig_2A.tiff"), width = 3050, height = 2000, units = "px", res = 300)
 F2A_plot
 dev.off()
 
-tiff(file = "Figures/Fig_2A_Legend.tiff", width = 500, height = 500, units = "px", res = 300)
+tiff(file = paste0(path, "Figures/Fig_2A_Legend.tiff"), width = 500, height = 1000, units = "px", res = 300)
 legend_F2A
 dev.off()
 ```
 
 
-# Figure 2B-2E - Richness at single time-pointsm, Richness Trajectories, and Colonization patterns associations with breastfeeding and asthma
+# Figure 2B - Associations between breastfeeding at sample collection and measures of microbiota richness and diversity tested using multivariate linear regression 
 
-### Microbiota Trajectory data subsets
+## Setting up multivariate analysis 
+
+## Variables selected for multivariate analysis - based on initial univaraite analysis - those variables also being pre-selected based on prior knowledge of potential biological importance
+```{r}
+# Covariates for each timepoint & participant id
+
+## first make atbx_3m variable before this will work
+vars_3m <- c("BF_status_3m_sampling", "RE_Virus_3m", "colds_0to3m","older_sibs", "StudyCenter", "Season_3m", "atbx", "prenatal_smoke", "birthmode2",  "mom_asthma_ever",  "age_3m_months", "CHILDid") 
+
+vars_1y <- c("BF_12m_sampling", "RE_Virus_1y", "coldsnum_6to12m", "older_sibs", "StudyCenter", "Season_1y", "atbx", "prenatal_smoke", "birthmode2", "mom_asthma_ever", "age_1y_months", "CHILDid") 
+
+# Main metadata variables to test
+traj_vars <- c("BF_status_3m_sampling", "RE_Virus_1y", "colds_0to3m", "older_sibs", "StudyCenter", "Season_1y", "atbx", "prenatal_smoke", "birthmode2", "mom_asthma_ever", "age_3m_months", "CHILDid") 
+
+
+# microbiota summary variables for each timepoint - Outcomes
+summary3m <- c("Observed_N3m", "Observed_G3m", "Shannon_N3m","Shannon_G3m") 
+summary1y <- c("Observed_N1y", "Observed_G1y", "Shannon_N1y",  "Shannon_G1y") 
+Traj_summary <- c("Observed_N1y3m", "Observed_G1y3m","Shannon_N1y3m", "Shannon_G1y3m") 
+
+# Combine Inputs
+n_mod_types <- 3 ## 3 different types based on timing/different datasets
+exposures <- list(vars_3m, vars_1y, traj_vars)
+outcomes <- list(summary3m, summary1y, Traj_summary) 
+df_ls <- Traj_data_ls # list, biological dta, then metadata
+
+# take not whether any factor levels need to be modified to make the model output cleaner - looks good - looks like the "positive" / "yes" is always the first level - note that for lmp the last level is ref - should be ok for BF mod.
+## lapply(subset(df_ls$Metadata, select = do.call(c, exposures)), table)
+```
+
+### Make dataset structures consistent and combine - only place outcome variables with the specific covariates of interest for each timepoint 
+Separate dfs per timepoint b/c each might have a slightly different set of covariates - so want to make a list of dfs, one for each model containing model inputs.
+```{r} 
+df_mod_inputs <- list()
+for(i in seq(n_mod_types)) {
+  df_mod_inputs_0 <- merge(df_ls[[2]], 
+                          df_ls[[1]], by = "row.names") %>% 
+                    subset(select = c(exposures[[i]], outcomes[[i]]))
+  ## melt by measure.vars = 'outcome' variable - if additional split based on different "outcomes" tested per model
+  df_mod_inputs[[i]] <- melt(df_mod_inputs_0, measure.vars = outcomes[[i]])
+}
+lapply(df_mod_inputs, dim)
+
+# Now in addition to stratifying tests by data subset, they should be stratified by 'variable' 
+df_mod_inputs_02 <- lapply(df_mod_inputs, function(x) {split(x, x[["variable"]])})
+str(df_mod_inputs_02)
+
+# Want to collapse this (currently it's a list of dataframes within a list which may be an issue for testing)
+## so want c(sdf_m_all_ls_02[[1]], sdf_m_all_ls_02[[2]], sdf_m_all_ls_02[[3]])...
+## do.call(c, ...) will apply 'c' to the elements in a list
+ ## makes 1 ls, great - EXTRA - also removing missing values per test var at this point. N should be as expected per var
+df_mod_inputs_03 <- df_mod_inputs_02 %>% do.call(c, .) %>% lapply(., function(x) subset(x, !is.na(value)))
+
+# Check sample sizes for each test - are they as expected? Yes
+lapply(df_mod_inputs_03, dim)
+  
+# Make covar names consistent for easier model input - just be aware of differences in timing of vars (e.g. colds = 0 to 3m for 3m data; and cold numb = 6 to 12m for 1 year data!) - NOTE - if the vars really do differ could make random temp labels then track back to original later.
+### b/c vars will be in the same order as shown in var_3m and var_1y - this will work 
+lapply(df_mod_inputs, colnames)
+
+main_vars <- c("BF_sampling", "RE_Virus", "colds","older_sibs", "StudyCenter", "Season", "atbx", "prenatal_smoke", "birthmode2", "mom_asthma_ever", "age", "CHILDid", "variable", "value") ### variable and value always at end, naming same for now
+
+df_mod_inputs_04 <- lapply(df_mod_inputs_03, function(x) { colnames(x) <- main_vars; x } )
+lapply(df_mod_inputs_04, colnames)
+
+## also try version w/t z-score for y value (ok to do after melt b/c also split by variable) - decided not to z-score - show actual estimates. 
+### df_mod_inputs_05 <- lapply(df_mod_inputs_04, function(x) {transform(x, value_z = scale(value)) })
+```
+
+### Multivariate linear models to assess breastfeeding (exposure) associated with microbiota alpha-diversity (continuous outcome) 
+
+**Multivariate models - BF 3 levels (exclusive/partial/no bm version)**
+(1) Run model
+```{r} 
+# INPUT df ls
+df_ls_mod <- df_mod_inputs_04
+# now 'value' always corresponds to the variable label shown in names(sdf_m_all_ls_04) - this will be the outcome for the BF model and main exposure for asthma model
+set.seed(1)
+multivar_lm_bf_v1 <- list()
+for(i in seq(df_ls_mod)) {
+  multivar_lm_bf_v1[[i]] <- lmp(value ~ BF_sampling + older_sibs + atbx + RE_Virus + colds + mom_asthma_ever + prenatal_smoke + birthmode2 + StudyCenter + age, 
+                                data = df_ls_mod[[i]], maxIter=10000, na.action = "na.omit")
+} 
+names(multivar_lm_bf_v1) <- names(df_ls_mod)
+
+# length(multivar_lm_bf_v1)
+
+# data to summarize
+Input_data <- lapply(multivar_lm_bf_v1, summary)
+Input_CIs <- lapply(multivar_lm_bf_v1, confint)
+```
+
+(2) extract beta-estimates (along with CI and permuted p-values) - Saving as separate more detailed results table 
+```{r} 
+# code inputs
+##Input_data 
+##Input_CIs 
+
+# Main code
+lmp_coeff_df <- Input_data %>% lapply(., function(x) {x["coefficients"]}) %>% bind_rows(., .id = "Model")
+
+## want to get a regular data.frame rather than the dplyr version so doing something weird to get this.
+lmp_coeff_df2 <- data.frame(Model = lmp_coeff_df$Model, lmp_coeff_df$coefficients)
+lmp_coeff_df2$X2 <- NULL # rm iterations, there are sufficient, particulalry for BF sampling (main exposure)
+colnames(lmp_coeff_df2) <- c("Model", "Estimate","perm_p_value")
+
+# remove rownames that show Intercept
+lmp_coeff_df_3 <- lmp_coeff_df2[!grepl("Intercept", row.names(lmp_coeff_df2)),]
+
+# Add variable column - BF_sampling1 = Exclusive and BF_sampling2 = Partial BF
+lmp_coeff_df_4 <- lmp_coeff_df_3 %>% mutate(Variable_Level =  ifelse(grepl("BF_sampling1", row.names(.)), "Exclusive BF", 
+                                                              ifelse(grepl("BF_sampling2", row.names(.)), "Partial BF", 
+                                                              ifelse(grepl("older_sibs1", row.names(.)), "Older siblings", 
+                                                              ifelse(grepl("atbx1", row.names(.)), "atbx", 
+                                                              ifelse(grepl("RE_Virus1", row.names(.)), "R/E",  
+                                                              ifelse(grepl("mom_asthma_ever1", row.names(.)), "maternal asthma", 
+                                                              ifelse(grepl("prenatal_smoke1", row.names(.)), "prenatal smoke", 
+                                                              ifelse(grepl("birthmode21", row.names(.)), "C-section",
+                                                              ifelse(grepl("age", row.names(.)), "age at sample collection",
+                                                                     gsub("\\.\\d\\d|\\.\\d", "", row.names(.))
+                                                                     )))))))))
+                                            ) %>% mutate(Variable = ifelse(Variable_Level %in% c("Exclusive BF", "Partial BF"), 
+                                                                           "BF sampling", gsub("\\d$", "", Variable_Level)))
+
+# to merge CIS
+lmp_coeff_df_4$Var1 <- gsub("\\.\\d|\\.\\d\\d", "", row.names(lmp_coeff_df_4))
+  
+
+# ADD CIs
+lmp_CIs_df2 <- Input_CIs %>% lapply(., melt) %>% bind_rows(., .id = "Model") %>% subset(., Var1 != "(Intercept)")
+
+lmp_CIs_df2_sp <- split(lmp_CIs_df2, lmp_CIs_df2$Var2)
+
+lmp_coeff <- merge(lmp_CIs_df2_sp$`2.5 %`, lmp_CIs_df2_sp$`97.5 %`, by = c("Model", "Var1"), suffixes = c("_CI_2.5", "_CI_97.5"))
+# check 
+nrow(lmp_coeff) == nrow(lmp_coeff_df_4)
+
+lmp_coeff_final <- merge(lmp_coeff_df_4, lmp_coeff, by = c("Model", "Var1"))
+# check 
+nrow(lmp_coeff_final) == nrow(lmp_coeff)
+
+lmp_coeff_final$Var1 <- NULL
+lmp_coeff_final$Var2_CI_2.5 <- NULL
+lmp_coeff_final$Var2_CI_97.5 <- NULL
+
+lmp_coeff_BF_v1 <- lmp_coeff_final # OUTPUT
+```
+
+(3) extract overall model R2 and p-value, plus append the main beta-estimate and p-value for main exposure (which is of main interest) - this will be the main result output 
+```{r}  
+# R2
+lmp_r2_df <- Input_data %>% lapply(., function(x) {x["adj.r.squared"]}) %>% bind_rows(., .id = "Model") %>% data.frame(., bind_rows(lapply(Input_data, function(x) {x["r.squared"]})))
+
+# P vals
+## use the pf function on f statisitc to calculate p-values
+lm_p_vals_df <- Input_data %>% lapply(., function(x) {x[["fstatistic"]]}) %>%
+                lapply(., function(x) {pf(x[1],x[2],x[3],lower.tail=F)}) %>% bind_rows(., .id = "Model")
+
+main_BF_v1_p_r2  <- data.frame(lmp_r2_df, p.value = lm_p_vals_df$value)
+ 
+
+## append info on Main exposure/group (Exclusive BF Vs. No BM comparison) - main comparison that is of interest 
+Exposure <- "Exclusive BF" # INPUT main exposure
+
+# OUTPUT
+main_BF_v1_p_r2_sub <- merge(main_BF_v1_p_r2,
+                             subset(lmp_coeff_final, Variable_Level == Exposure, select = c("Model", "Estimate", "perm_p_value", "value_CI_2.5", "value_CI_97.5")),
+                             by = "Model"
+                            )
+
+colnames(main_BF_v1_p_r2_sub)[5:length(colnames(main_BF_v1_p_r2_sub))] <- gsub("$", paste("_", Exposure, sep = ""), colnames(main_BF_v1_p_r2_sub)[5:length(colnames(main_BF_v1_p_r2_sub))])
+```
+main_BF_v1_p_r2_sub, lmp_coeff_BF_v1
+
+**Save output for multivariate BF models**
+```{r} 
+saveRDS(main_BF_v1_p_r2_sub, paste0(path, "Tables/res_MultiLmp_Main_Alpha_01_BF_All_v02.rds"))
+saveRDS(lmp_coeff_BF_v1, paste0(path, "Tables/res_MultiLmp_Coeff_Alpha_01_BF_All_v02.rds"))
+
+main_BF_v1_p_r2_sub <- readRDS(paste0(path, "Tables/res_MultiLmp_Main_Alpha_01_BF_All_v02.rds"))
+#lmp_coeff_BF_v1 <- readRDS(paste0(path, "Tables/res_MultiLmp_Coeff_Alpha_01_BF_All_v02.rds"))
+```
+
+**Use Univariate model output from Figure 2A for breastfeeding associations with microbiota summary variables**
+```{r}
+lmp_coeff_Traj <- read.csv(file=paste0(path, "Tables/Res_For_Fig2A_Trajectory_lmp_BetaEst.csv"), row.names = 1)
+merged_div_Ests_NG <- read.csv(file=paste0(path, "Tables/Res_For_Fig2A_IndividTimePoints_lmp_BetaEst.csv"), row.names = 1)
+```
+
+Prep results for plotting
+```{r}
+# Univariate: bf_est_univar_stat, bf_est_univar_traj, bf_r2_unvar
+
+# Multivariate: main_BF_v1_p_r2_sub, lmp_coeff_BF_v1 (or use No BF vs exclusive only? main_BF_v2_p_r2_sub, lmp_coeff_BF_v2 - note that for univariate all groups were used and this is also better for multivariate versions to increase N)
+
+## for the variables of interest.... just fdr correction across everything ## NOTE adding 0.000000001 b/c p does not go beyond 0.00000000 digits 
+
+# Univariate stats - clean up
+## BF_status_3m_sampling, BF_12m_sampling - assessed for 3 month and 1 year microbiome, respectively 
+table(merged_div_Ests_NG$Dataset)
+bf_est_univar_stat <- merged_div_Ests_NG %>% subset(., 
+                                                    (Dataset == "1 Year" & Variable == "BF_12m_sampling") | 
+                                                      (Dataset == "3 Months" & Variable == "BF_status_3m_sampling") & 
+                                                      Comparison_group != "Partial") 
+
+
+table(lmp_coeff_Traj$Variable2) ## tested both 1 year and 3 month but just selecting 3 month BF for trajectory
+bf_est_univar_traj <- subset(lmp_coeff_Traj, Variable == "BF_status_3m_sampling" & 
+                           Comparison_group != "Partial") %>% 
+                        mutate(SampleType = ifelse(grepl("G1y3m", Variable2), "Gut", "Nasal"),
+                               Dataset = "Trajectory")
+
+bf_est_all <- rbind(bf_est_univar_stat, bf_est_univar_traj) %>%
+                mutate(Model = paste0("Unadjusted\n", Dataset),
+                       Type = ifelse(grepl("Shannon_|Diversity", Variable2), "Diversity",
+                                     ifelse(grepl("Observed_|Richness", Variable2), "Richness", NA))
+                       ) %>% subset(!is.na(Type))
+
+# ## for the variables of interest.... just fdr correction across everything ## NOTE adding 0.000000001 b/c p does not go beyond  b/c of permutation use
+bf_est_univar_3 <- bf_est_all %>% mutate(perm_p_BM = p.adjust((perm_p_value + 0.000000001), n = nrow(.), method = "BH"),
+                                     perm_p_BM_2 = ifelse(perm_p_BM < 0.001, "p < 0.001", paste("p =", round(perm_p_BM, 3)))
+                                     )
+
+# Clean up multivariate data
+main_BF_p_r2_sub_02 <- main_BF_v1_p_r2_sub %>% 
+                        mutate(perm_p_BM = p.adjust((`perm_p_value_Exclusive BF` + 0.000000001), n = nrow(.), method = "BH"),
+                               perm_p_BM_2 = ifelse(perm_p_BM < 0.001, "p < 0.001", paste("p =", round(perm_p_BM, 3))),
+                               Type = ifelse(grepl("Shannon", Model), "Diversity", 
+                                             ifelse(grepl("Observed", Model), "Richness", 
+                                                    ifelse(grepl("Early|Late|Persistent", Model), "Colonizers", NA))),
+                               SampleType = ifelse(grepl("Gut|_G", Model), "Gut", "Nasal"),
+                               Dataset = ifelse(grepl("_1Y_|_G1y$|_N1y$", Model), "1 Year",
+                                     ifelse(grepl("_3M_|_G3m$|_N3m$", Model), "3 Months", "Trajectory"))
+                               ) %>%
+                        mutate(Model = paste0("Adjusted\n", Dataset))
+
+# Make sure columns match and rbind univariate and multivariate results
+## Remove un-used columns (overall model stats - just showing association w/t main exposure of interest)
+## relabel to merge w/t univariate res. 
+names(main_BF_p_r2_sub_02)[names(main_BF_p_r2_sub_02) == "Estimate_Exclusive BF"] <- "Estimate"
+names(main_BF_p_r2_sub_02)[names(main_BF_p_r2_sub_02) == "value_CI_2.5_Exclusive BF"] <- "CI_2.5pct"
+names(main_BF_p_r2_sub_02)[names(main_BF_p_r2_sub_02) == "value_CI_97.5_Exclusive BF"] <- "CI_97.5pct"
+names(main_BF_p_r2_sub_02)[names(main_BF_p_r2_sub_02) == "perm_p_value_Exclusive BF"] <- "perm_p_value"
+
+main_BF_p_r2_sub_02$adj.r.squared <- NULL
+main_BF_p_r2_sub_02$r.squared <- NULL
+main_BF_p_r2_sub_02$p.value <- NULL
+
+bf_est_univar_3$Comparison_group <- NULL
+bf_est_univar_3$Variable <- NULL
+bf_est_univar_3$Variable2 <- NULL
+bf_est_univar_3$Reference_group <- NULL
+
+main_BF_lms <- rbind(bf_est_univar_3, main_BF_p_r2_sub_02)
+
+main_BF_lms$Type <- factor(main_BF_lms$Type, levels = c("Diversity", "Richness", "Colonizers"))
+main_BF_lms$Sample <- factor(main_BF_lms$Sample, levels = c("Nasal", "Gut"))
+
+table(main_BF_lms$Model)
+## For every adjusted version should be identical unadjusted version want to plot these side by side
+levels_mod <- c("Unadjusted\n3 Months", "Adjusted\n3 Months","Unadjusted\n1 Year", "Adjusted\n1 Year", "Unadjusted\nTrajectory", "Adjusted\nTrajectory")
+main_BF_lms$Model <- factor(main_BF_lms$Model, levels = rev(levels_mod)) 
+
+## second thought plotting separate
+main_BF_lms$Mod_Type <- ifelse(grepl("Unadjusted", main_BF_lms$Model), "Unadjusted", "Adjusted")
+main_BF_lms$Mod_Type <- factor(main_BF_lms$Mod_Type, levels = c("Unadjusted", "Adjusted"))
+```
+
+```{r}
+main_BF_lms$Type <- factor(main_BF_lms$Type, levels = c("Richness", "Diversity"))
+main_BF_lms_plot <- split(main_BF_lms, main_BF_lms$Type)
+
+plots <- list()
+for(i in seq(main_BF_lms_plot)) {
+plots[[i]] <- ggplot(main_BF_lms_plot[[i]], aes(y = Model, color = interaction(Mod_Type, Sample))) +  
+  facet_wrap(~Sample, ncol = 1) +
+  geom_point(aes(x=Estimate), size=3) +
+  geom_linerange(aes(xmin= CI_2.5pct, xmax= CI_97.5pct))  +
+  labs(x = "Beta-estimate", y = "Model") +
+  theme(axis.text.y = element_text(size = 10), legend.position = "none", strip.text.x = element_blank()) +
+  geom_vline(xintercept = 0, linetype="dashed") + scale_color_manual(values = c("#f2aeb0", "#fc4447", "#e6c093", "#f08a0c") ) + 
+  geom_text(aes( label = perm_p_BM_2, x = Estimate, y = Model), color = "black", vjust = -0.7, show.legend = FALSE, check_overlap = FALSE)
+}
+
+t <- 0.1
+r <- 0.1
+b <- 0
+l <- 0.1
+tiff(file = paste0(path, "Figures/Fig2B_BF_Multivar.tiff"), width = 1450, height = 2100, units = "px", res = 300)
+plot_grid(plots[[1]] + scale_x_continuous(limits = c(-10, 10)) +
+            theme(plot.margin = unit(c(t, r, b, l), "cm"),
+                  axis.title.x = element_text(face = "bold", size = 11), axis.text.x = element_text(size = 10)), 
+          plots[[2]] + scale_x_continuous(limits = c(-0.35, 0.35)) + 
+            theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), 
+                  plot.margin = unit(c(t, r, b, l), "cm"), axis.title.y = element_blank(),
+                  axis.title.x = element_text(face = "bold", size = 11), axis.text.x = element_text(size = 10)),
+          rel_widths = c(1, 0.70))
+dev.off()
+
+# values reported in manusciprt for multivar regression
+subset(main_BF_p_r2_sub_02, select = c("SampleType", "Type", "perm_p_BM", "perm_p_BM_2"), Model == "Adjusted\nTrajectory")
+```
+
+
+# Figure 2C-2F - Microbiota Richness and Diversity Trajectories associated with Breastfeeding and Asthma - assess effect size and direction
+
+### Microbiota 3-month 1-year paired data subsets 
 
 ```{r}
 # Main metadata variables to test
@@ -1831,7 +2222,10 @@ Main_vars_Traj <- c("BF_status_3m_sampling", "asthma_3y", "asthma_5y", "asthma_3
 ### List of Trajectory summary variables to be used for these analysis
 NG_summary <- c("Early_N1y3m", "Late_N1y3m", "Persistent_N1y3m", 
                 "Early_G1y3m", "Late_G1y3m", "Persistent_G1y3m", 
-                "Observed_N1y3m", "Observed_G1y3m", "Observed_N3m", "Observed_N1y", "Observed_G1y","Observed_G3m") 
+                "Observed_N1y3m", "Observed_G1y3m", "Observed_N3m", 
+                "Observed_N1y", "Observed_G1y","Observed_G3m",
+               "Shannon_N1y3m", "Shannon_G1y3m", "Shannon_N3m",
+               "Shannon_N1y",  "Shannon_G1y","Shannon_G3m") 
 ```
 
 ```{r} 
@@ -1852,21 +2246,19 @@ NG_Traj_sdf_Ast5y <- subset(NG_Traj_sdf, asthma_5y != "Possible")
 NG_Traj_sdf_Ast3y5y <- subset(NG_Traj_sdf, asthma_3y_5y != "Possible")
 
 ## double checking sample size for each variable
-lapply(NG_Traj_sdf_BF[2:length(NG_summary)], function(x) {sum(!is.na(x))})
-
-lapply(NG_Traj_sdf_Ast[2:length(NG_summary)], function(x) {sum(!is.na(x))})
-
-lapply(NG_Traj_sdf_Ast5y[2:length(NG_summary)], function(x) {sum(!is.na(x))})
-
-lapply(NG_Traj_sdf_Ast3y5y[2:length(NG_summary)], function(x) {sum(!is.na(x))})
+#lapply(NG_Traj_sdf_BF[2:(1+length(NG_summary))], function(x) {sum(!is.na(x))})
+#lapply(NG_Traj_sdf_Ast[2:(1+length(NG_summary))], function(x) {sum(!is.na(x))})
+#lapply(NG_Traj_sdf_Ast5y[2:(1+length(NG_summary))], function(x) {sum(!is.na(x))})
+#lapply(NG_Traj_sdf_Ast3y5y[2:(1+length(NG_summary))], function(x) {sum(!is.na(x))})
 ```
 
-## Wilcoxon rank-sum tests (For Fig 2C, 2E and related supplementary and extra results)
+## Wilcoxon rank-sum tests (For Fig 2D, 2F and related supplementary and extra results)
+Table generated 'Wilcoxon_Res_Fig2D_2F_and_SuppTraj_ColPat_Richness.csv' shows p-values for Fig 2D, 2F, S2, S4, S5B, S5C
 
 ### Breastfeeding at 3 month sampling
 More important for 3 month time-point and trajectories
 ```{r}
-Trajs_forTest <- as.list(NG_Traj_sdf_BF[2:length(NG_summary)]) # Also includes static timepoint richness but for the paired dataset
+Trajs_forTest <- as.list(NG_Traj_sdf_BF[2:(1+length(NG_summary))]) # Also includes static timepoint richness but for the paired dataset
 
 Wilcox_res_BF <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_BF$BF_status_3m_sampling)} )
 
@@ -1875,11 +2267,13 @@ colnames(Wilcox_P_BF) <- "BF.3m_p.value"
 
 Wilcox_P_BF$BF.3m_Sig <-  ifelse(Wilcox_P_BF$BF.3m_p.value < 0.001, "**",
                           ifelse(Wilcox_P_BF$BF.3m_p.value < 0.05, "*", ""))
+
+Wilcox_P_BF[grepl("Shannon|Observed", row.names(Wilcox_P_BF)),] %>% mutate(BF.3m_p.value = round(BF.3m_p.value, 3))
 ```
 
 ### Asthma at 3 Years
 ```{r}
-Trajs_forTest <- as.list(NG_Traj_sdf_Ast[2:length(NG_summary)]) 
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast[2:(1+length(NG_summary))]) 
 
 Wilcox_res_Asthma3y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast$asthma_3y)} )
 
@@ -1888,11 +2282,13 @@ colnames(Wilcox_P_Ast3y) <- "Asthma.3y_p.value"
 
 Wilcox_P_Ast3y$Asth.3y_Sig <-  ifelse(Wilcox_P_Ast3y$Asthma.3y_p.value < 0.001, "**",
                           ifelse(Wilcox_P_Ast3y$Asthma.3y_p.value < 0.05, "*", ""))
+
+Wilcox_P_Ast3y[grepl("Shannon|Observed", row.names(Wilcox_P_Ast3y)),] %>% mutate(Asthma.3y_p.value = round(Asthma.3y_p.value, 3))
 ```
 
 ### Asthma at 5 Years
 ```{r}
-Trajs_forTest <- as.list(NG_Traj_sdf_Ast5y[2:length(NG_summary)]) 
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast5y[2:(1+length(NG_summary))]) 
 
 Wilcox_res_Asthma5y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast5y$asthma_5y)} )
 
@@ -1905,14 +2301,14 @@ Wilcox_P_Ast5y$Asth.5y_Sig <-  ifelse(Wilcox_P_Ast5y$Asthma.5y_p.value < 0.001, 
 
 ### Asthma at 3 Years that persists to 5 Years
 ```{r}
-Trajs_forTest <- as.list(NG_Traj_sdf_Ast3y5y[2:length(NG_summary)]) 
+Trajs_forTest <- as.list(NG_Traj_sdf_Ast3y5y[2:(1+length(NG_summary))]) 
 
 Wilcox_res_Asthma3y5y <- lapply(Trajs_forTest, function(x) {wilcox.test(x ~ NG_Traj_sdf_Ast3y5y$asthma_3y_5y)} )
 
 Wilcox_P_Ast3y5y <- Wilcox_res_Asthma3y5y %>% lapply(., function(x) {x[["p.value"]]}) %>% bind_rows(.) %>% t(.) %>% as.data.frame(.)
 colnames(Wilcox_P_Ast3y5y) <- "Asthma.3y5y_p.value"
 
-Wilcox_P_Ast3y5y$Asth.5y_Sig <-  ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0.001, "**",
+Wilcox_P_Ast3y5y$Asth.3y5y_Sig <-  ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0.001, "**",
                           ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0.05, "*", ""))
 ```
 
@@ -1920,15 +2316,16 @@ Wilcox_P_Ast3y5y$Asth.5y_Sig <-  ifelse(Wilcox_P_Ast3y5y$Asthma.3y5y_p.value < 0
 Wilcox_P_merged <- data.frame(Wilcox_P_BF, Wilcox_P_Ast3y, Wilcox_P_Ast5y, Wilcox_P_Ast3y5y)
 Wilcox_P_merged
 
-write.csv(Wilcox_P_merged, file="Output/Wilcoxon_Res_Fig2C2E_Supp_Traj_ColPat_Richness.csv")
+write.csv(Wilcox_P_merged, file=paste0(path, "Tables/Wilcoxon_Res_Fig2D_2F_and_SuppTraj_ColPat_Richness.csv"))
 ```
 
 
-## Wilcoxon signed-rank tests (for Figure 2B & 2D)
+## Wilcoxon signed-rank tests (for Figure 2C & 2E)
 
 ### Breastfeeding at 3 month sampling
 3 month vs. 1 year Observed OTUs Within Exclusive & Within No BM (Stratified)
 ```{r}
+# Richness
 ## Nasal
 NG_Traj_sdf_BFsplit <- split(NG_Traj_sdf_BF, NG_Traj_sdf_BF$BF_status_3m_sampling)
 
@@ -1938,6 +2335,15 @@ wilcox.test(NG_Traj_sdf_BFsplit$`No BM`$Observed_N3m, NG_Traj_sdf_BFsplit$`No BM
 ## Gut
 wilcox.test(NG_Traj_sdf_BFsplit$Exclusive$Observed_G3m, NG_Traj_sdf_BFsplit$Exclusive$Observed_G1y, paired = TRUE) 
 wilcox.test(NG_Traj_sdf_BFsplit$`No BM`$Observed_G3m, NG_Traj_sdf_BFsplit$`No BM`$Observed_G1y, paired = TRUE) 
+
+# Diversity - should align with richness essentially
+## Nasal
+wilcox.test(NG_Traj_sdf_BFsplit$Exclusive$Shannon_N3m, NG_Traj_sdf_BFsplit$Exclusive$Shannon_N1y, paired = TRUE) 
+wilcox.test(NG_Traj_sdf_BFsplit$`No BM`$Shannon_N3m, NG_Traj_sdf_BFsplit$`No BM`$Shannon_N1y, paired = TRUE) 
+
+## Gut
+wilcox.test(NG_Traj_sdf_BFsplit$Exclusive$Shannon_G3m, NG_Traj_sdf_BFsplit$Exclusive$Shannon_G1y, paired = TRUE) 
+wilcox.test(NG_Traj_sdf_BFsplit$`No BM`$Shannon_G3m, NG_Traj_sdf_BFsplit$`No BM`$Shannon_G1y, paired = TRUE) 
 ```
 
 ### Asthma at 3 Years
@@ -1952,6 +2358,15 @@ wilcox.test(NG_Traj_sdf_Ast_split$No$Observed_N3m, NG_Traj_sdf_Ast_split$No$Obse
 ## Gut
 wilcox.test(NG_Traj_sdf_Ast_split$Yes$Observed_G3m, NG_Traj_sdf_Ast_split$Yes$Observed_G1y, paired = TRUE) 
 wilcox.test(NG_Traj_sdf_Ast_split$No$Observed_G3m, NG_Traj_sdf_Ast_split$No$Observed_G1y, paired = TRUE) 
+
+# Diversity - should align with richness essentially
+## Nasal
+wilcox.test(NG_Traj_sdf_Ast_split$Yes$Shannon_N3m, NG_Traj_sdf_Ast_split$Yes$Shannon_N1y, paired = TRUE) 
+wilcox.test(NG_Traj_sdf_Ast_split$No$Shannon_N3m, NG_Traj_sdf_Ast_split$No$Shannon_N1y, paired = TRUE) 
+
+## Gut
+wilcox.test(NG_Traj_sdf_Ast_split$Yes$Shannon_G3m, NG_Traj_sdf_Ast_split$Yes$Shannon_G1y, paired = TRUE) 
+wilcox.test(NG_Traj_sdf_Ast_split$No$Shannon_G3m, NG_Traj_sdf_Ast_split$No$Shannon_G1y, paired = TRUE) 
 ```
 
 
@@ -1959,118 +2374,209 @@ wilcox.test(NG_Traj_sdf_Ast_split$No$Observed_G3m, NG_Traj_sdf_Ast_split$No$Obse
 
 **Datasets for plots - melt & split - Observed Trajectories, Observed Individual timepoint and Colonization patterns**
 ```{r}
-NG_Traj_sdf_m <- melt(NG_Traj_sdf, measure.vars = NG_summary)
-NG_Traj_sdf_m$Dataset <- ifelse(grepl("_G", NG_Traj_sdf_m$variable), "Gut", "Nasal")
-NG_Traj_sdf_m$Dataset <- factor(NG_Traj_sdf_m$Dataset, levels = c("Nasal", "Gut"))
+NG_Traj_sdf_m <- melt(NG_Traj_sdf, measure.vars = NG_summary) %>%
+                    mutate(Dataset = factor(ifelse(grepl("_G", variable), "Gut", "Nasal"), levels = c("Nasal", "Gut")),
+                           var_type = ifelse(grepl("Shannon_N1y3m|Shannon_G1y3m", variable), "Diversity Trajectory",
+                                      ifelse(grepl("Observed_N1y3m|Observed_G1y3m", variable), "Richness Trajectory",
+                                      ifelse(grepl("Shannon", variable), "Diversity", 
+                                      ifelse(grepl("Observed", variable), "Richness", "Colonization"))))
+                           )
 
-Single_tp <- c("Observed_N3m", "Observed_G3m", "Observed_N1y", "Observed_G1y")
-Trajs <- c("Observed_N1y3m", "Observed_G1y3m")
+Single_tp <- c("Observed_N3m", "Observed_G3m", "Observed_N1y", "Observed_G1y",
+               "Shannon_N3m", "Shannon_G3m", "Shannon_N1y", "Shannon_G1y")
+Trajs <- c("Observed_N1y3m", "Observed_G1y3m", "Shannon_N1y3m", "Shannon_G1y3m")
 ColPats <- setdiff(NG_summary, c(Single_tp, Trajs))
 
 ## split data for plots
-NG_Traj_sdf_m_Trajs <- subset(NG_Traj_sdf_m, variable %in% Trajs)
+NG_Traj_sdf_m_main <- subset(NG_Traj_sdf_m, variable %ni% ColPats)
+NG_Traj_sdf_m_main$Visit <- ifelse(grepl("3", NG_Traj_sdf_m_main$variable) & NG_Traj_sdf_m_main$var_type %in% c("Diversity", "Richness"), "3-Month", 
+                                 ifelse(grepl("1", NG_Traj_sdf_m_main$variable) & NG_Traj_sdf_m_main$var_type %in% c("Diversity", "Richness"), "1-Year", "Trajectory"))
+NG_Traj_sdf_m_main$Visit <- factor(NG_Traj_sdf_m_main$Visit, levels = c("3-Month", "1-Year", "Trajectory"))
+
+
 NG_Traj_sdf_m_ColPats <- subset(NG_Traj_sdf_m, variable %in% ColPats)
 
-NG_Traj_sdf_m_Tp <- subset(NG_Traj_sdf_m, variable %in% Single_tp)
-NG_Traj_sdf_m_Tp$Visit <- ifelse(grepl("3", NG_Traj_sdf_m_Tp$variable), "3-Month", "1-Year")
-NG_Traj_sdf_m_Tp$Visit <- factor(NG_Traj_sdf_m_Tp$Visit, levels = c("3-Month", "1-Year"))
-```
 
-### Summary statistics for tests of breastfeeding at 3 months and asthma at 3 years
-```{r}
-BF_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, BF_status_3m_sampling != "Partial"), varname = "value", groupnames = c("Dataset", "variable", "BF_status_3m_sampling"))
-BF_sumary$Actual_N <- BF_sumary$N - BF_sumary$NAs
-BF_sumary
+# dataset subset for plots - splitting by variable b/c want separate y-axsi limits per variable but to be consistent within variable cross groups
+## BF plots
+NG_Traj_sdf_m_BF <- subset(NG_Traj_sdf_m_main, BF_status_3m_sampling != "Partial") %>% split(., as.character(.[["var_type"]]))
+## asthma plots
+NG_Traj_sdf_m_Ast <- subset(NG_Traj_sdf_m_main, asthma_3y != "Possible") %>% split(., as.character(.[["var_type"]]))
 
-Asthma3Y_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, asthma_3y != "Possible"), varname = "value", groupnames = c("variable", "Dataset", "asthma_3y"))
-Asthma3Y_sumary$Actual_N <- Asthma3Y_sumary$N - Asthma3Y_sumary$NAs
-Asthma3Y_sumary
-```
 
-```{r}
-# Colors to use 
+# Colors to use in plots
 Trj_cols <- c("#f2aeb0", "#f08a0c") # colors for the Nasal vs Gut trajectories, and also use for individual time-point supplementary plots
 Tp_Div_cols <- c("#f2aeb0", "#fc4447", "#e6c093", "#f08a0c") # colors for Nasal vs gut diversity stratified first by time-point 
 ```
 
+Summary statistics for tests of breastfeeding at 3 months and asthma at 3 years
+```{r}
+BF_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, BF_status_3m_sampling != "Partial" & variable %ni% ColPats),
+                             varname = "value", groupnames = c("Dataset", "variable", "BF_status_3m_sampling"))
+BF_sumary$Actual_N <- BF_sumary$N - BF_sumary$NAs
+BF_sumary
 
-Breastfeeding, Figure 2B & 2C
+Asthma3Y_sumary <- data_summary_V2(subset(NG_Traj_sdf_m, asthma_3y != "Possible" & variable %ni% ColPats), 
+                                   varname = "value", groupnames = c("variable", "Dataset", "asthma_3y"))
+Asthma3Y_sumary$Actual_N <- Asthma3Y_sumary$N - Asthma3Y_sumary$NAs
+Asthma3Y_sumary
+```
+
+**Figure 2C. Richness and Diversity Comparison between timepoints stratified by Breastfeeding**
 ```{r, warning=FALSE}
-# Figure 2B Microbiota richness compared b/t timepoints, stratified
-dw <- 0.65
+dw <- 0.75
+t <- 0.05
+r <- 0
+b <- 0
+l <- 0
+div_yaxis <- seq(0, 4) # SEE scale_y_continuous - change spacing to get plot sizes to match up if needed
 
-Fig_2B <- ggplot(NG_Traj_sdf_m_Tp_BF, aes(x=BF_status_3m_sampling, y = value,
-  group = interaction(Visit,BF_status_3m_sampling))) + facet_wrap(~Dataset) + geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) +
+Fig_2C_1 <- ggplot(NG_Traj_sdf_m_BF$Richness, aes(x=BF_status_3m_sampling, y = value,
+  group = interaction(Visit,BF_status_3m_sampling))) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, 
+              position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) +
   geom_violin(trim = FALSE, alpha=0, position=position_dodge(width = dw)) + 
   stat_summary(fun=median, geom="point", shape=23, size=2, fill="black", position=position_dodge(width = dw))  +
   scale_y_continuous(expand=c(0,0), limits = c(-10,220)) + 
-  theme(axis.text = element_text(size=9), legend.position = "none") + labs(y="Microbiota Richness", x="Breastfeeding Exclusivity\nat 3 Months") + 
+  theme(axis.text = element_text(size=9), legend.position = "none", axis.title.x = element_text(face = "bold"),
+        strip.text.x = element_blank(), plot.margin = unit(c(t, r, b, l), "cm")) +
+  labs(y="Microbiota Richness", x=" ") + 
   scale_color_manual(values = Tp_Div_cols) 
-Fig_2B
 
-# needed colors to be more visible in legend, excluded alpha
-#Fig_1C_Legend <- ggplot(GN_3m1y_otu_sdf2_M_BFsub, aes(x=BF_status_3m_sampling, y = value, group = interaction(variable,BF_status_3m_sampling))) + facet_wrap(~Dataset) + geom_jitter(aes(color = interaction(variable,Dataset)), shape=16, position=position_jitterdodge(jitter.width = 0.25, dodge.width = 0.75), size=3, alpha=0.75)  + scale_y_continuous(expand=c(0,0), limits = c(-0.5,300)) + theme(axis.title.x= element_blank(), axis.text = element_text(size=11), legend.position = "right") + labs(y="Microbiota Richness") + scale_color_manual(values = Tp_Div_cols) 
+Fig_2C_2 <- ggplot(NG_Traj_sdf_m_BF$Diversity, aes(x=BF_status_3m_sampling, y = value,
+  group = interaction(Visit,BF_status_3m_sampling))) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, 
+              position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) +
+  geom_violin(trim = FALSE, alpha=0, position=position_dodge(width = dw)) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black", position=position_dodge(width = dw))  +
+  theme(axis.text = element_text(size=9), legend.position = "none", axis.title.x = element_text(face = "bold"), 
+        strip.text.x = element_blank(), plot.margin = unit(c(t, r, b, l), "cm")) +
+  labs(y="Microbiota Diversity", x="Breastfeeding at 3 months") + 
+  scale_y_continuous(expand=c(0,0), breaks = div_yaxis, labels = gsub("^", "   ", div_yaxis)) + ## kind of hack to get plot sizes to match exactly
+  scale_color_manual(values = Tp_Div_cols) 
 
-# Fig 2C - Richness Trajectory 
-NG_Traj_sdf_m_Trajs_BF <- subset(NG_Traj_sdf_m_Trajs, BF_status_3m_sampling!="Partial") 
-
-Fig_2C <- ggplot(NG_Traj_sdf_m_Trajs_BF, aes(x=BF_status_3m_sampling, y=value, group=BF_status_3m_sampling)) + facet_wrap(~Dataset) + 
-  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + geom_violin(width=0.5, trim = FALSE, alpha=0) + 
-  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + scale_y_continuous(expand=c(0,0)) + coord_cartesian(ylim = c(-225, 200))  + 
-  theme(axis.text = element_text(size=9), legend.position = "none") + labs(y="Richness Trajectory", x="Breastfeeding Exclusivity\nat 3 Months") + 
-  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("Exclusive", "No BM")), test = "wilcox.test", step_increase = 0.2, vjust = 2, map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) # 
-Fig_2C
+plot_grid(Fig_2C_1, Fig_2C_2, ncol = 1)
 ```
 
-Asthma 3y, Figure 2D & 2E
-```{r}
-Fig_2D <- ggplot(NG_Traj_sdf_m_Tp_Ast, aes(x=asthma_3y, y = value, group = interaction(Visit,asthma_3y))) + facet_wrap(~Dataset) + 
-  geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) + 
+**Figure 2D. Richness and Diversity Trajectory association with Breastfeeding**
+```{r, warning=FALSE}
+div_yaxis <- seq(-4, 4, by = 2) # SEE scale_y_continuous - change spacing to get plot sizes to match up if needed
+t <- 0.1
+
+Fig_2D_1 <- ggplot(NG_Traj_sdf_m_BF$`Richness Trajectory`, aes(x=BF_status_3m_sampling, y=value, group=BF_status_3m_sampling)) + 
+  facet_wrap(~Dataset) + geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, 
+                                     position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + 
+  scale_y_continuous(expand=c(0,0)) + coord_cartesian(ylim = c(-225, 200))  + 
+  theme(axis.text = element_text(size=9), legend.position = "none", plot.margin = unit(c(t, r, b, l), "cm"), 
+        axis.title.x = element_text(face = "bold"), strip.text.x = element_blank()) + 
+  labs(y="Richness Trajectory", x=" ") + 
+  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("Exclusive", "No BM")),
+                                                      test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+                                                      map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) # 
+
+Fig_2D_2 <- ggplot(NG_Traj_sdf_m_BF$`Diversity Trajectory`, aes(x=BF_status_3m_sampling, y=value, group=BF_status_3m_sampling)) + 
+  facet_wrap(~Dataset) + geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, 
+                                     position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + 
+  theme(axis.text = element_text(size=9), legend.position = "none", plot.margin = unit(c(t, r, b, l), "cm"), 
+        axis.title.x = element_text(face = "bold"), strip.text.x = element_blank()) + 
+  labs(y="Diversity Trajectory", x="Breastfeeding at 3 months") + 
+  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("Exclusive", "No BM")), 
+                                                      test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+                                                      map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) +
+  scale_y_continuous(expand=c(0,0), breaks = div_yaxis, labels = gsub("^", "   ", div_yaxis))  ## kind of hack to get plot sizes to match exactly
+
+
+plot_grid(Fig_2D_1, Fig_2D_2, ncol = 1)
+```
+
+**Figure 2E. Richness and Diversity Comparison between timepoints stratified by Asthma at 3 years**
+```{r, warning=FALSE}
+dw <- 0.75
+t <- 0.05
+r <- 0
+b <- 0
+l <- 0
+div_yaxis <- seq(0, 4) # SEE scale_y_continuous - change spacing to get plot sizes to match up if needed
+
+Fig_2E_1 <- ggplot(NG_Traj_sdf_m_Ast$Richness, aes(x=asthma_3y, y = value, group = interaction(Visit,asthma_3y))) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, 
+              position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) + 
   geom_violin(trim = FALSE, alpha=0, position=position_dodge(width = dw)) + 
   stat_summary(fun=median, geom="point", shape=23, size=2, fill="black", position=position_dodge(width = dw)) +
   scale_y_continuous(expand=c(0,0)) + 
-  theme(axis.text = element_text(size=9), legend.position = "none") +
-  labs(y="Microbiota Richness", x="Asthma at 3 Years") + scale_color_manual(values = Tp_Div_cols) +
+  theme(axis.text = element_text(size=9), legend.position = "none", plot.margin = unit(c(t, r, b, l), "cm"), strip.text.x = element_blank()) +
+  labs(y="Microbiota Richness", x=" ") + scale_color_manual(values = Tp_Div_cols) +
   coord_cartesian(ylim = c(-10,220))
-Fig_2D
 
-NG_Traj_sdf_m_Trajs_Ast <- subset(NG_Traj_sdf_m_Trajs, asthma_3y!="Possible") 
+Fig_2E_2 <- ggplot(NG_Traj_sdf_m_Ast$Diversity, aes(x=asthma_3y, y = value, group = interaction(Visit,asthma_3y))) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color = interaction(Visit,Dataset)), shape=16, 
+              position=position_jitterdodge(jitter.width = 0.3, dodge.width = dw), size=1.5, alpha=0.3) + 
+  geom_violin(trim = FALSE, alpha=0, position=position_dodge(width = dw)) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black", position=position_dodge(width = dw)) +
+  theme(axis.text = element_text(size=9), legend.position = "none", axis.title.x = element_text(face = "bold"), 
+        plot.margin = unit(c(t, r, b, l), "cm"), strip.text.x = element_blank()) +
+  labs(y="Microbiota Diversity", x="Asthma at 3 years") + scale_color_manual(values = Tp_Div_cols) +
+  scale_y_continuous(expand=c(0,0), breaks = div_yaxis, labels = gsub("^", "   ", div_yaxis))  ## kind of hack to get plot sizes to match exactly
 
-Fig_2E <- ggplot(NG_Traj_sdf_m_Trajs_Ast, aes(x=asthma_3y, y=value, group=asthma_3y)) + facet_wrap(~Dataset) + 
-  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + geom_violin(width=0.5, trim = FALSE, alpha=0) + 
-  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + scale_y_continuous(expand=c(0,0)) + coord_cartesian(ylim = c(-225, 200))  + 
-  theme(axis.text = element_text(size=9), legend.position = "none") + labs(y="Richness Trajectory", x="Asthma at 3 Years") + 
-  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("No", "Yes")), test = "wilcox.test", step_increase = 0.2, vjust = 2, map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) # 
-Fig_2E
+plot_grid(Fig_2E_1, Fig_2E_2, ncol = 1)
 ```
 
+**Figure 2F. Richness and Diversity Trajectory association with Asthma**
+```{r, warning=FALSE}
+div_yaxis <- seq(-4, 4, by = 2) # SEE scale_y_continuous - change spacing to get plot sizes to match up if needed
+t <- 0.1
+
+Fig_2F_1 <- ggplot(NG_Traj_sdf_m_Ast$`Richness Trajectory`, aes(x=asthma_3y, y=value, group=asthma_3y)) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  + scale_y_continuous(expand=c(0,0)) + 
+  coord_cartesian(ylim = c(-225, 200))  + 
+  theme(axis.text = element_text(size=9), legend.position = "none", axis.title.x = element_text(face = "bold"), 
+        plot.margin = unit(c(t, r, b, l), "cm"), strip.text.x = element_blank()) + 
+  labs(y="Richness Trajectory", x=" ") + 
+  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("No", "Yes")), 
+                                                      test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+                                                      map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) 
+
+Fig_2F_2 <- ggplot(NG_Traj_sdf_m_Ast$`Diversity Trajectory`, aes(x=asthma_3y, y=value, group=asthma_3y)) + facet_wrap(~Dataset) + 
+  geom_jitter(aes(color=Dataset),shape=16, size=1.5, alpha=0.3, position = position_jitter(width = 0.15)) + 
+  geom_violin(width=0.5, trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  +
+  theme(axis.text = element_text(size=9), legend.position = "none", axis.title.x = element_text(face = "bold"), 
+        plot.margin = unit(c(t, r, b, l), "cm"), strip.text.x = element_blank()) + 
+  labs(y="Diversity Trajectory", x="Asthma at 3 years") + 
+  scale_color_manual(values = Trj_cols) + geom_signif(color="black", comparisons = list(c("No", "Yes")), 
+                                                      test = "wilcox.test", step_increase = 0.2, vjust = 2, 
+                                                      map_signif_level = c("**"=0.001, "*"=0.051,"~"=0.1," "=2), size=0, textsize = 7) +
+  scale_y_continuous(expand=c(0,0), breaks = div_yaxis, labels = gsub("^", "   ", div_yaxis))  ## kind of hack to get plot sizes to match exactly
+
+
+plot_grid(Fig_2F_1, Fig_2F_2, ncol = 1)
+```
 
 ```{r, warning=FALSE, include=FALSE} 
-# Save Richness Plots for Figure 2
+tiff(file = paste0(path, "Figures/Fig_2C_BF_Timepoint_RichTraj.tiff"), width = 1050, height = 1100, units = "px", res = 300)
+plot_grid(Fig_2C_1, Fig_2C_2, ncol = 1)
+dev.off()
 
-tiff(file = "Figures/Fig_2B_BF_Timepoint_RichTraj.tiff", width = 1200, height = 800, units = "px", res = 300)
-Fig_2B
+tiff(file = paste0(path, "Figures/Fig_2D_BF_RichTraj.tiff"), width = 850, height = 1200, units = "px", res = 300)
+plot_grid(Fig_2D_1, Fig_2D_2, ncol = 1)
+dev.off()
+
+tiff(file = paste0(path, "Figures/Fig_2E_Asthma3y_Tp_RichTraj.tiff"), width = 1050, height = 1100, units = "px", res = 300)
+plot_grid(Fig_2E_1, Fig_2E_2, ncol = 1)
+dev.off()
+
+tiff(file = paste0(path, "Figures/Fig_2F_Asthma3y_RichTraj.tiff"), width = 850, height = 1200, units = "px", res = 300)
+plot_grid(Fig_2F_1, Fig_2F_2, ncol = 1)
 dev.off()
 
 #tiff(file = "Figures/Fig1C_V1_Legend.tiff", width = 500, height = 500, units = "px", res = 300)
 #Fig_1C_Legend
 #dev.off()
-
-tiff(file = "Figures/Fig_2C_BF_RichTraj.tiff", width = 850, height = 800, units = "px", res = 300)
-Fig_2C
-dev.off()
-
-tiff(file = "Figures/Fig_2D_Asthma3y_Tp_RichTraj.tiff", width = 1200, height = 800, units = "px", res = 300)
-Fig_2D
-dev.off()
-
-tiff(file = "Figures/Fig_2E_Asthma3y_RichTraj.tiff", width = 850, height = 800, units = "px", res = 300)
-Fig_2E
-dev.off()
 ```
-
-
-
-
-
 

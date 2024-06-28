@@ -19,10 +19,9 @@ library(decontam); packageVersion('decontam')
 library(RColorBrewer); packageVersion('RColorBrewer')
 library(vegan); packageVersion('vegan')
 library(gtools); packageVersion('gtools')
-```
+library(here)
 
-```{r}
-source("Functions.R")
+source(paste0(here::here(), "/Functions.R"))
 ```
 
 ```{r}
@@ -39,8 +38,8 @@ mycols22 <- c("#bcb3ff","#479700","#0062e0","#6bde61","#b27fff","#f5be38","#ff77
 # NASAL DATASET PREPROCESSING AND QC CHECKS 
 
 ```{r}
-physeq_child <- readRDS(file='output/datasets/phy_nasal_Close_CHILD_March2021.rds') 
-```
+physeq_child <- readRDS(file=paste0(path, 'Data/Preprocessing/output/datasets/phy_nasal_Close_CHILD_March2021.rds'))
+``` 
 
 ## Table of Read Counts by Sample Type before PreProcessing
 ```{r, warning=FALSE, message=FALSE}
@@ -105,7 +104,7 @@ PCR_py_check
 ```
 
 ```{r, include=FALSE}
-saveRDS(physeq_bac, file='output/datasets/physeq_nasal_bacteria.rds')
+saveRDS(physeq_bac, file=paste0(path, 'Data/Preprocessing/output/datasets/physeq_nasal_bacteria.rds'))
 ```
 
 ### Read Count by Sample Type
@@ -121,7 +120,7 @@ sdf$RunID <- gsub("^LR", "", sdf$RunID)
 
 depth_PerRun <- data_summary_V2(sdf, varname="readcount_bacteria", groupnames=c("SampleType", "RunID"))
 
-write.csv(depth_PerRun, file="output/Nasal_preDeconReadCounts_032021.csv", quote=FALSE)
+write.csv(depth_PerRun, file=paste0(path, "Data/Preprocessing/output/Nasal_preDeconReadCounts_032021.csv"), quote=FALSE)
 depth_PerRun
 ```
 
@@ -215,7 +214,7 @@ df.pa$contaminant <- ifelse(df.pa$Ext_contaminant == TRUE, "Ext. contaminant", i
 
 df.pa$contaminant <- factor(df.pa$contaminant, levels = c("Sample", "Ext. contaminant", "PCR contaminant"))
 
-write.csv(df.pa, file="output/Nasal_Contaminant_InFo.csv", quote = FALSE)
+write.csv(df.pa, file=paste0(path, "Data/Preprocessing/output/Nasal_Contaminant_InFo.csv"), quote = FALSE)
 ```
 
 **True samples vs PCR Negatives**
@@ -261,12 +260,9 @@ Py_nonAllcontam <- subset_taxa(Py_nonPCRcontam, ASV %ni% rownames(contam_pa_Ext)
 summary(sample_sums(Py_nonAllcontam) - sample_sums(Py_nonPCRcontam)) # Median number of reads removed from additional extraction contamination: 231 
 
 Py_nonAllcontam #17551 taxa, nearlly all remaining
-```
 
-```{r, include=FALSE}
-#saveRDS(Py_nonAllcontam, file='output/datasets/N_phyloseq_postDecontam.rds')
+#saveRDS(Py_nonAllcontam, file=paste0(path, 'Data/Preprocessing/output/datasets/N_phyloseq_postDecontam.rds'))
 ```
-
 
 ### Read Counts after Step 2, contaminant removal
 *Also adding read counts to metadata as "readcount_postDecon"*
@@ -308,7 +304,7 @@ sdf$RunID <- gsub("^LR", "", sdf$RunID)
 
 depth_PerRun <- data_summary_V2(sdf, varname="readcount_postDecon", groupnames=c("SampleType", "RunID"))
 
-write.csv(depth_PerRun, file="output/N_postDeconReadCounts.csv", quote=FALSE)
+write.csv(depth_PerRun, file=paste0(path, "Data/Preprocessing/output/N_postDeconReadCounts.csv"), quote=FALSE)
 
 depth_PerRun
 ```
@@ -341,21 +337,52 @@ ggplot(sdf_samps, aes(x=Index, y=readcount_postDecon)) + geom_point(alpha=0.3, s
   scale_y_continuous(limits = c(0,300000), breaks = c(8000, 20000, 100000, 200000, 300000)) 
 ```
 
+```{r, eval=FALSE, echo=FALSE}
+# not evaluating this chunk when knitting html, takes too long
 ### Rarefaction slopes, are new OTUs being found or is richness 'saturated' at 8000 reads?
-```{r}
-set.seed(9999)
-# for plot, only include samples
-ForPlot <- subset_samples(Py_nonAllcontam, SampleType == "Sample")
-
-##rarecurve(t(otu_table(ForPlot)), step = 5000, cex=0.5, label = FALSE, xlim = c(5000, 100000)) # step 5000 to increase speed of comp
+# splitting by visit so that lines are actually visible
+#  just for plot, only include samples
+ForPlot <- subset_samples(Py_nonAllcontam, SampleType == "Sample" & Visit == "3 Months") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t # have to make df before t otherwise logical subscript too long error
 
 # rarefaction curve takes forever, below is a quicker check for re-running code in the future - just to check the slope values rather than visualizing entire plot
-summary(rareslope(t(otu_table(ForPlot)), sample=7000))
+set.seed(9999)
+summary(rareslope(ForPlot, sample=8000)) # selected option
 
-summary(rareslope(t(otu_table(ForPlot)), sample=8000)) # selected option
+summary(rareslope(ForPlot, sample=10000)) 
 
-summary(rareslope(t(otu_table(ForPlot)), sample=10000)) 
+set.seed(9999)
 
+tiff(file = "rarecurve_nasal_3m.tiff", width = 1500, height = 2000, units = "px", res = 300)
+rarecurve(ForPlot, step = 1000, cex=0.5, label = FALSE, xlim = c(1000, 50000)) # step 5000 to increase speed of comp
+abline(v = 8000, col="blue")
+##abline(v = 10000, col="orange")
+dev.off()
+
+ForPlot <- subset_samples(Py_nonAllcontam, SampleType == "Sample" & Visit == "1 Year") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t # have to make df before t otherwise logical subscript too long error
+
+# rarefaction curve takes forever, below is a quicker check for re-running code in the future - just to check the slope values rather than visualizing entire plot
+set.seed(9999)
+summary(rareslope(ForPlot, sample=8000)) # selected option- median = 0.0009654, IQR = 0.0003526 - 0.0017624
+
+summary(rareslope(ForPlot, sample=10000)) # median  = 0.0006471, IQR = 0.0002157 - 0.0012645
+
+summary(rareslope(ForPlot, sample=25000)) # 0.000088418 (0.000004626 - 0.000004626)
+
+set.seed(9999)
+
+tiff(file = "rarecurve_nasal_1y.tiff", width = 1500, height = 2000, units = "px", res = 300)
+rarecurve(ForPlot, step = 1000, cex=0.5, label = FALSE, xlim = c(1000, 50000)) # step 5000 to increase speed of comp
+abline(v = 8000, col="blue")
+##abline(v = 10000, col="orange")
+dev.off()
+
+ForPlot <- subset_samples(Py_nonAllcontam, SampleType == "Sample") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t # have to make df before t otherwise logical subscript too long error
+
+# rarefaction curve takes forever, below is a quicker check for re-running code in the future - just to check the slope values rather than visualizing entire plot
+set.seed(9999)
+summary(rareslope(ForPlot, sample=8000)) 
+
+summary(rareslope(ForPlot, sample=10000))
 # Almost all have slopes <0.0015 with 8,000 reads/sample and max is 0.008. This is very similar to 10,000 reads/sample which was the other option.
 ```
 
@@ -432,7 +459,7 @@ taxa_abund_UnRare2 <- merge(subset(taxa_unrel, select = "Genus"), taxa_abund_UnR
 taxa_abund_UnRare2$Sumcutoff <- NULL
 taxa_abund_UnRare2$AvRelcutoff2 <- NULL
 
-write.csv(taxa_abund_UnRare2, file="output/Nasal_Unrarified_taxa_abundances.csv", quote = FALSE)
+write.csv(taxa_abund_UnRare2, file=paste0(path, "Data/Preprocessing/output/Nasal_Unrarified_taxa_abundances.csv"), quote = FALSE)
 ```
 
 ### Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less -  remove from the Count dataset (not relative data)
@@ -472,7 +499,7 @@ sdf <- as(sample_data(UnRarefyCount_prune), "data.frame")
 depth_PerRun <- data_summary_V2(sdf, varname="readcount_postRareTaxaFilt", groupnames=c("RunID"))
 depth_PerRun
 
-write.csv(depth_PerRun, file="output/Nasal_PostSampleAndRareTaxaFilt_Counts.csv", quote=FALSE)
+write.csv(depth_PerRun, file=paste0(path, "Data/Preprocessing/output/Nasal_PostSampleAndRareTaxaFilt_Counts.csv"), quote=FALSE)
 ```
 
 
@@ -494,7 +521,7 @@ summary(sdf$readcount_postRareTaxaFilt/sdf$readcount_postDecon*100)  ## Nearlly 
 
 ```{r, include=FALSE}
 ##Save Pruned/Un-Rarified version
-saveRDS(UnRarefyCount_prune, file="output/datasets/Nasal_UnRarefied_Pruned_Py.rds")
+saveRDS(UnRarefyCount_prune, file=paste0(path, "Data/Preprocessing/output/datasets/Nasal_UnRarefied_Pruned_Py.rds"))
 ```
 
 
@@ -526,7 +553,7 @@ UnRarefyCount_prune2
 ```
 
 ```{r, include=FALSE}
-saveRDS(UnRarefyCount_prune2, file="final_datasets/01_Nasal_UnRarefied_Py.rds")
+saveRDS(UnRarefyCount_prune2, file=paste0(path, "Data/Preprocessing/final_datasets/01_Nasal_UnRarefied_Py.rds"))
 ```
 
 
@@ -592,7 +619,7 @@ depths_summary2_G
 
 ```{r, include=FALSE}
 # Save Physeq Obj
-saveRDS(physeq_bac_G, file='output/datasets/physeq_gut_bacteria')
+saveRDS(physeq_bac_G, file=paste0(path, 'Data/Preprocessing/output/datasets/physeq_gut_bacteria'))
 ```
 
 
@@ -623,7 +650,7 @@ summary(sdf_blanks_H$readcount_bacteria) # thought to be mislabeled positive con
 depth_PerRun <- data_summary_V2(sdf, varname="readcount_bacteria", groupnames=c("SampleType", "RunID"))
 depth_PerRun
 
-write.csv(depth_PerRun, file="output/Gut_preDeconReadCounts_052021.csv", quote=FALSE)
+write.csv(depth_PerRun, file=paste0(path, "Data/Preprocessing/output/Gut_preDeconReadCounts_052021.csv"), quote=FALSE)
 ```
 
 **Number of samples per run and plot of read counts across runs**
@@ -659,25 +686,39 @@ ggplot(sdf_samps, aes(x=Index, y=readcount_bacteria)) + geom_point(alpha=0.3, si
   scale_y_continuous(limits = c(0,60000), breaks = c(8000,10000, 20000, 30000, 40000, 50000, 60000))
 ```
 
+```{r, echo = FALSE, eval = FALSE}
+# Not running in knit b/c takes too long to generate plots. 
 ### Rarefaction slopes, are new OTUs being found or is richness 'saturated' at 8000 reads?
-```{r}
-set.seed(9999)
+# splitting by visit so that lines are actually visible
 #  just for plot, only include samples
-ForPlot <- subset_samples(physeq_bac_G, SampleType == "Gut")
+ForPlot <- subset_samples(physeq_bac_G, SampleType == "Gut" & Visit == "3 Months") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t # have to make df before t otherwise logical subscript too long error
 
-#tiff(file = "Figures/rarecurve.tiff", width = 1500, height = 1500, units = "px", res = 300)
-##rarecurve(t(otu_table(ForPlot)), step = 5000, cex=0.5, label = FALSE, xlim = c(5000, 100000)) # step 5000 to increase speed of comp
-##abline(v = 8000, col="blue")
-##abline(v = 10000, col="blue")
-#dev.off()
+set.seed(9999)
+
+tiff(file = paste0(path, "Figures/Fig_S10_rarecurve_gut_3m.tiff"), width = 1500, height = 2000, units = "px", res = 300)
+rarecurve(ForPlot, step = 1000, cex=0.5, label = FALSE, xlim = c(1000, 50000)) # step 5000 to increase speed of comp
+abline(v = 8000, col="blue")
+##abline(v = 10000, col="orange")
+dev.off()
+
+ForPlot <- subset_samples(physeq_bac_G, SampleType == "Gut" & Visit == "1 Year") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t # have to make df before t otherwise logical subscript too long error
+
+set.seed(9999)
+
+tiff(file = paste0(path, "Figures/Fig_S10_rarecurve_gut_1y.tiff"), width = 1500, height = 2000, units = "px", res = 300)
+rarecurve(ForPlot, step = 1000, cex=0.5, label = FALSE, xlim = c(1000, 50000)) # step 5000 to increase speed of comp
+abline(v = 8000, col="blue")
+##abline(v = 10000, col="orange")
+dev.off()
+
+ForPlot <- subset_samples(physeq_bac_G, SampleType == "Gut") %>% prune_taxa(taxa_sums(.)>0, .) %>% otu_table %>% as.data.frame %>% t 
+
+set.seed(9999)
 
 # rarefaction curve takes forever, below is a quicker check 
-summary(rareslope(t(otu_table(ForPlot)), sample=7000))
+summary(rareslope(ForPlot, sample=8000))
 
-summary(rareslope(t(otu_table(ForPlot)), sample=8000))
-
-summary(rareslope(t(otu_table(ForPlot)), sample=10000)) # other possible option
-
+summary(rareslope(ForPlot, sample=10000)) # other possible option
 # All have a very flat slope, good
 ```
 
@@ -754,7 +795,7 @@ taxa_abund_UnRare2 <- merge(subset(taxa_unrel, select = "Genus"), taxa_abund_UnR
 taxa_abund_UnRare2$Sumcutoff <- NULL
 taxa_abund_UnRare2$AvRelcutoff2 <- NULL
 
-write.csv(taxa_abund_UnRare2, file="output/Gut_Unrarified_taxa_abundances.csv", quote = FALSE)
+write.csv(taxa_abund_UnRare2, file=paste0(path, "Data/Preprocessing/output/Gut_Unrarified_taxa_abundances.csv"), quote = FALSE)
 ```
 
 ### Removed Rare Taxa in 0.0001% Mean Relative Abundance or Less -  remove from the Count dataset (not relative data)
@@ -790,7 +831,7 @@ sdf <- sample_data(UnRarefyCount_prune_G)
 depth_PerRun <- data_summary_V2(sdf, varname="readcount_postRareTaxaFilt", groupnames=c("RunID"))
 depth_PerRun
 
-write.csv(depth_PerRun, file="output/Gut_PostSampleAndRareTaxaFilt_Counts.csv", quote=FALSE)
+write.csv(depth_PerRun, file=paste0(path, "output/Gut_PostSampleAndRareTaxaFilt_Counts.csv"), quote=FALSE)
 ```
 
 ### Final Read Count Assessment
@@ -807,7 +848,7 @@ summary(sdf$readcount_postRareTaxaFilt/sdf$readcount_bacteria*100)
 
 ```{r, include=FALSE}
 ##Save Pruned/Un-Rarified version
-saveRDS(UnRarefyCount_prune_G, file="final_datasets/UnRarefied_Pruned_Py_gut.rds")
+saveRDS(UnRarefyCount_prune_G, file=paste0(path, "Data/Preprocessing/final_datasets/UnRarefied_Pruned_Py_gut.rds"))
 ```
 
 
@@ -1039,7 +1080,7 @@ table(sample_data(physeq)$SampleType, sample_data(physeq)$Visit)
 
 ```{r}
 ## save sample data Prior to adding subject metadata/etc., this is imported into "01_KF_clean_CHILD-Data_Nasal-250321.R" in metadata cleaning to link with subject metadata and milk composition data for these specific participants
-saveRDS(as(sample_data(physeq), "data.frame"), file="final_datasets/nasal_milk_gut_sample_data")
+saveRDS(as(sample_data(physeq), "data.frame"), file=paste0(path, "Data/Preprocessing/final_datasets/nasal_milk_gut_sample_data"))
 ```
 
 
@@ -1365,14 +1406,13 @@ physeq
 
 # Saved datasets
 ```{r}
-saveRDS(physeq, file="final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds")
-#physeq <- readRDS(file="final_milk_nasal_gut/02_UnRarefied_Merged_Milk_Nasal_042021")
+saveRDS(physeq, file=paste0(path, "Data/Preprocessing/final_datasets/02_UnRarefied_Merged_Milk_Nasal_Gut.rds"))
 
 sdf <- as(sample_data(physeq), "data.frame")
 # Save sample metadata separately too
-write.csv(sdf, file="final_datasets/Milk_Nasal_Gut_merged_sample_data.csv")
+write.csv(sdf, file=paste0(path, "Data/Preprocessing/final_datasets/Milk_Nasal_Gut_merged_sample_data.csv"))
 
-saveRDS(physeq_rarif, file="final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds")
+saveRDS(physeq_rarif, file=paste0(path, "Data/Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds"))
 ```
 
 

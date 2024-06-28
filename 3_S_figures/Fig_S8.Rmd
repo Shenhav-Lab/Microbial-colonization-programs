@@ -1,0 +1,550 @@
+---
+title: "Figure S8. The correlation between the colonization patterns and trajectories of functions identified as delayed with breastfeeding at 3 months, and no asthma compared to asthma at 3 years."
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+ 
+## Setup 
+
+```{r}
+R.version.string
+library(phyloseq)
+library(ggplot2)
+library(tidyr)
+library(reshape2)
+library(knitr)
+library(dplyr)
+library(Hmisc)
+library(stringr)
+library(glue)
+library(ggtext)
+library(ggsignif)
+library(here)
+
+source(paste0(here::here(), "/Functions.R"))
+
+theme_set(theme_bw() + theme(strip.text.x = element_text(size = 11), strip.background = element_rect(colour="white", fill="white"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), text = element_text(size=12), axis.text = element_text(color="black", size=12), legend.key.size = unit(0.5,"cm")))
+```
+
+## Read in Metagenomic data & PreTCO results
+```{r}
+## cleaned metagenomic taxonomy and sample data, also normalize metagenomic counts
+Gut_3M1Y_all_filt <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/03_Abund_metagenomic_Trajectory.rds"))
+sdf <- sample_data(Gut_3M1Y_all_filt) # sample dta
+
+funcs_3M1Y_bin_s <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/MainTaxaFunctionsBinaryTraj_sdf_above10EitherVis_v02.rds"))
+
+names_bestPrevalence_s <- readRDS(file = paste0(path, "Data/Metagenome_metabolome/final_datasets/Ls_MainTaxaFuncs_best_Binary_above10_below90EitherVis_v02.rds"))
+## some issues with number at beginning of strings
+names_bestPrevalence_s$EC <- gsub("^", "X", names_bestPrevalence_s$EC) 
+names_bestPrevalence_s$MetaCyc <- gsub("^\\d", "X1", names_bestPrevalence_s$MetaCyc)
+
+
+# also the results to select specific features
+Res_per_taxa_ec_asthma <- read.csv(file = paste0(path, "Tables/Metagenome_metabolome/EC_Strata_Asthma_PreTCo_res.csv"), row.names = 1)
+Res_per_taxa_ec_bf <- read.csv(file = paste0(path, "Tables/Metagenome_metabolome/EC_Strata_BF_PreTCo_res.csv"), row.names = 1)
+
+
+## sig late w/t BF and asthma set w/t p<0.01
+late_overlap <- intersect(row.names(subset(Res_per_taxa_ec_bf, p_value < 0.01)),
+                          row.names(subset(Res_per_taxa_ec_asthma, p_value < 0.01)))
+late_overlap ## see that all R. gnavus - focus of this figure
+
+## check opposite -  select randomly from R. gnavus functions of those not late by BF
+ns_late_bf_rg <- row.names(subset(Res_per_taxa_ec_bf, p_value >= 0.01))
+ns_late_bf_rg <- ns_late_bf_rg[grepl("ruminococcus.gnavus$", ns_late_bf_rg)]
+length(ns_late_bf_rg)
+
+# 30 funcs NS - not late - in breastfeeding -  These are all ALSO not late for asthma. NOTE that  this is of the R. gnavus functions
+length(intersect(ns_late_bf_rg, row.names(subset(Res_per_taxa_ec_asthma, p_value >= 0.01))))
+
+## see 12 late for asthma overall, 8 also late for BF (all r. gnavus), 4 not late with BF (all not R. gnavus funcs)
+length(row.names(subset(Res_per_taxa_ec_asthma, p_value < 0.01))) 
+```
+
+
+# Figure S8B - Prevalence Plot showing R. gnavus prevalence, and selected EC functions, stratified by breastfeeding and asthma
+```{r} 
+# taxa - decided to just plot r. gnavus 
+taxa_select <- "Ruminococcus_gnavus"
+## Gut_3M1Y_all_filt = physeq obj input
+
+# functions - decided to just plot r. gnavus 
+strata_select <- "ruminococcus.gnavus"
+
+## Subset/melt: R. gnavus from taxonomic data
+sub_taxa <- Gut_3M1Y_all_filt %>% otu_table %>% t %>% as.data.frame %>% 
+                  subset(., select = c(taxa_select)) 
+# melt(., id.vars = colnames(sdf))
+
+## Subset functions:  R. gnavus functions associated w/t both BF and Asthma - late_overlap
+### or not found as late w/t BF (in this case also NS for asthma) - randomly select n
+set.seed(1)
+ns_late_bf_rg_sub <- sample(ns_late_bf_rg, size = 6)
+
+cols_select <- c(ns_late_bf_rg_sub, late_overlap, colnames(sdf))
+
+### also merge with sub_taxa, then melt all together
+melted_funcs_taxa <- funcs_3M1Y_bin_s$EC %>% subset(., select = cols_select) %>%
+                      merge(., sub_taxa, by = "row.names") %>% melt(., id.vars = c("Row.names", colnames(sdf))) %>%
+                      mutate(data = ifelse(variable %in% taxa_select, "taxonomy", "function"),
+                             variable = gsub("_ruminococcus.gnavus$", "", variable) ## simplified version - only ok to do this way for now b/c format differs for function vs taxonomy data
+                             ) 
+table(melted_funcs_taxa$data)
+
+## make variable name versions to match diff plots - numeric only and alpha only
+melted_funcs_taxa$var_alpha <- melted_funcs_taxa$variable %>% gsub("^X\\d\\.\\d", "", .) %>% 
+  gsub("^\\d\\.\\d{1,}\\.\\d{1,}\\.|^\\.\\d{1,}\\.\\d{1,}.|^\\.\\d\\.\\d\\.|\\.\\d.\\d{1,}\\.\\d{1,}.", "", .)
+table(melted_funcs_taxa$var_alpha)
+
+melted_funcs_taxa$variable_num <- melted_funcs_taxa$variable %>% gsub("^X|[:alpha:].*", "", .) %>%  ## not rm all alpha for some reason
+                                                  gsub("c$|g$|n$|dn$|tr$|m$|di$", "", .) %>%  
+                                                  gsub("\\.$|\\.o\\.bet|\\.fe\\.3|\\.s\\.r\\.r|\\.de|\\.digu|\\.s\\.formy|\\.s", "", .) %>%
+                                                  gsub("Ruminococcus_g", "Ruminococcus\ngnavus", .)
+table(melted_funcs_taxa$variable_num)
+
+## summarize functional and taxonomy prevalence
+grouping_cols <- c("variable", "var_alpha", "variable_num", "data", "Visit")
+BFsumm_prev <- melted_funcs_taxa %>% subset(., BF_status_3m_sampling != "Partial") %>% ## rm Partial
+            prev_summary_2(., "value", c(grouping_cols, "BF_status_3m_sampling"))  %>%
+            mutate(Group = BF_status_3m_sampling, Comparison = "Breastfeeding")
+
+Astsumm_prev <- melted_funcs_taxa %>% subset(., asthma_3y != "Possible") %>% # rm Possible, and NA
+            prev_summary_2(., "value", c(grouping_cols, "asthma_3y")) %>%
+            mutate(Group = asthma_3y, Comparison = "Asthma")
+
+#BFsumm_prev$Comparison <- "Breastfeeding" #  Exclusivity at 3 months
+BFsumm_prev$BF_status_3m_sampling <- NULL
+Astsumm_prev$asthma_3y <- NULL
+All_prev_summ <- rbind(BFsumm_prev, Astsumm_prev)
+```
+
+```{r, fig.height=7, fig.width=6} 
+All_prev_summ$Visit <- factor(All_prev_summ$Visit, levels = c("3 month", "1 year"))
+All_prev_summ$Comparison <- factor(All_prev_summ$Comparison, levels = c("Breastfeeding", "Asthma"))
+
+### for asthetics, reordering - R. gnavus, late functions, not late functions, and only using numeric id for non-late functions - just name main ones
+table(All_prev_summ$variable_num)
+table(All_prev_summ$var_alpha)
+
+num_var_ns <- subset(All_prev_summ, variable %in% gsub("_ruminococcus.gnavus", "", ns_late_bf_rg_sub))$variable_num
+
+unique(subset(All_prev_summ, variable %in% gsub("_ruminococcus.gnavus", "", late_overlap))$variable_num)
+## reorder these to match heatmap in main Fig 5A
+num_var_sig <- c("2.4.2.18", "1.11.1.1", "3.2.1.22", "2.7.7.7", "5.99.1.2", "3.5.1.2", "1.3.1.76", "3.5.1.24")
+
+All_prev_summ$variable_num <- factor(All_prev_summ$variable_num, levels = c("Ruminococcus\ngnavus", unique(num_var_sig), unique(num_var_ns)))
+
+
+# Annotate with change in prevalence - Exclusive VS. No BF
+## make a df for this
+BFsummaryEC_bin_sub_wide <- data.frame(subset(All_prev_summ, Visit == "1 year"),
+                                       subset(All_prev_summ, Visit == "3 month"))
+
+## double checks
+table(BFsummaryEC_bin_sub_wide$variable == BFsummaryEC_bin_sub_wide$variable.1)
+table(BFsummaryEC_bin_sub_wide$Group == BFsummaryEC_bin_sub_wide$Group.1)
+
+## generate summary variable - this will correspond to the prevalence in PreTCoA plots
+BFsummaryEC_bin_sub_wide$Change_Prevalence <- round(BFsummaryEC_bin_sub_wide$Prevalence - BFsummaryEC_bin_sub_wide$Prevalence.1, 1)
+# annotate Change_Prevalence, link w/t BF_status_3m_sampling & variable
+
+All_prev_summ_sp <- split(All_prev_summ, All_prev_summ$Comparison)
+BFsummaryEC_bin_sub_wide_sp <- split(BFsummaryEC_bin_sub_wide, BFsummaryEC_bin_sub_wide$Comparison)
+
+table(BFsummaryEC_bin_sub_wide_sp$Breastfeeding$variable_num)
+table(All_prev_summ_sp$Breastfeeding$variable_num)
+
+vjust_n <- 0
+
+tiff(file = paste0(path, "Figures/Fig_S8B_ECStrata_BF.tiff"), width = 1800, height = 2600, units = "px", res = 300)
+ggplot(All_prev_summ_sp$Breastfeeding, aes(x = Group, y = Prevalence, fill = Visit)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(size = 9))+
+  labs(y = "Prevalence (%)", x = "Breastfeeding at 3 Months")+
+  facet_wrap(~variable_num, ncol = 3, scales = "free_x") + 
+  scale_y_continuous(limits = c(0, 115), expand = c(0,0), breaks = c(0,25,50,75,100))+
+  geom_text(data = BFsummaryEC_bin_sub_wide_sp$Breastfeeding, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4) +
+      geom_text(data = BFsummaryEC_bin_sub_wide_sp$Breastfeeding, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4.07) +
+  geom_text(data = BFsummaryEC_bin_sub_wide_sp$Breastfeeding, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4.09) +
+  scale_fill_manual(values = c("#c3c4bb", "#8c8c87"))
+dev.off()
+
+tiff(file = paste0(path, "Figures/Fig_S8B_ECStrata_Asthma3y.tiff"), width = 1800, height = 2600, units = "px", res = 300)
+ggplot(All_prev_summ_sp$Asthma, aes(x = Group, y = Prevalence, fill = Visit)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  theme(axis.text.x = element_text(size = 9))+
+  labs(y = "Prevalence (%)", x = "Asthma, 3 Years")+
+  facet_wrap(~variable_num, ncol = 3, scales = "free_x") + 
+  scale_y_continuous(limits = c(0, 115), expand = c(0,0), breaks = c(0,25,50,75,100))+
+   # lazy cheating bold rather than parse/ggtext/etc
+  geom_text(data = BFsummaryEC_bin_sub_wide_sp$Asthma, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4) +
+    geom_text(data = BFsummaryEC_bin_sub_wide_sp$Asthma, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4.07) +
+  geom_text(data = BFsummaryEC_bin_sub_wide_sp$Asthma, aes(label = Change_Prevalence, x = Group), vjust = vjust_n, color = "#2c4382", size = 4.09) +
+  scale_fill_manual(values = c("#c3c4bb", "#8c8c87"))
+dev.off()
+```
+
+
+# Figure S8A & S8C - Correlations between colonization patterns and functional prevalence trajectories 
+
+## Clean data, derive Functional Trajectories (used in PreTCO)
+To simplify making of prevalence trajectory scatter plots, first make the 'difference in prevalence' results for every pair of samples for each infant (1Y - 3M, e.g. 0 - 1 = -1; 1 - 0 = 1) - so a "-1" means it's present at 3 months but not 1 year, 1 means 1 year but not 3m and 0 means no change.
+```{r} 
+# Make dataset for Change in Prevalence from 3M to 1y (always TP2 - TP1) - append sdf -  NOTE that this is per-participant 
+
+## proof check they match
+### table(subset(funcs_3M1Y_bin_s$EggNog, Visit == "1 year")$subjectnumber == subset(funcs_3M1Y_bin_s$EggNog, Visit == "3 month")$subjectnumber)
+
+# merge difference b/t timepoints - 1 year minus 3 months for same df - with sample data
+funcs_3M1Y_bin_diff_s <- list()
+for(i in seq(funcs_3M1Y_bin_s)) { 
+  funcs_3M1Y_bin_diff_s[[i]] <- merge(subset(funcs_3M1Y_bin_s[[i]],
+                                             Visit == "1 year", select =  
+                                               intersect(names_bestPrevalence_s[[i]], colnames(funcs_3M1Y_bin_s[[i]]))
+                                             ) - subset(funcs_3M1Y_bin_s[[i]], 
+                                                        Visit == "3 month", 
+                                                        select =  intersect(names_bestPrevalence_s[[i]], colnames(funcs_3M1Y_bin_s[[i]]))
+                                                        ), 
+                                      sdf, by = "row.names")
+  funcs_3M1Y_bin_diff_s[[i]]$Row.names <- NULL
+}
+names(funcs_3M1Y_bin_diff_s) <- names(funcs_3M1Y_bin_s)
+lapply(funcs_3M1Y_bin_diff_s, function(x) ncol(x) - ncol(sdf)) ## good, adds up
+#N_vars <- lapply(funcs_3M1Y_bin_diff_s, function(x) ncol(x) - ncol(sdf)) # number of taxa or vars, to use in downstream 
+#N_subj <- lapply(funcs_3M1Y_bin_diff_s, nrow) # number of subjects, to use in downstream 
+```
+
+## 16S Trajectory dataset - Gut
+```{r}
+#### Prevalence Trajectory permutation test results generated for individual taxa 
+## Results generated in 03_Fig3_4_S4AC_S5_TabS4.Rmd
+
+Per_test_df_ls <- readRDS(paste0(path, "Tables/PermTests/MAIN_Permutation_PrevTraj_Res.rds"))
+
+#### Prevalence Trajectory feature table used for prevalence trajectory analysis 
+## Results generated in 03_Fig3_4_S4AC_S5_TabS4.Rmd
+change_3m1y_pa_all <- read.csv(file=paste0(path, "Data/Data_subsets/Prevalence_Trajectory_Features_N171_G172.csv"), row.names = 1) # The first 171 columns are nasal taxa, 172 to end of df is gut
+
+#### Trajectory Summary variables derived from trajectory analyses & participant metadata
+## generated in 00_Processing_Derived_Trajectories.Rmd
+Traj_data_ls <- readRDS(paste0(path, "Data/Data_subsets/ALL_Trajectory_Derived_Data.rds")) 
+```
+
+### Prevalence Trajectories of individual taxa significantly delayed with breastfeeding and asthma
+```{r}
+# Select individual taxa 
+Per_test_df_ls_p0.01 <- lapply(Per_test_df_ls, function(x) {subset(x, p_value <0.05)})
+
+BF_asthma_sig_G <- intersect(row.names(Per_test_df_ls_p0.01$BF_Gut),
+                             row.names(Per_test_df_ls_p0.01$Ast3y_Gut)) %>% 
+                      gsub("^", "G_", .)
+BF_asthma_sig_G
+
+change_3m1y_pa_Select <- subset(change_3m1y_pa_all, select = BF_asthma_sig_G)
+```
+
+### Add participant metadata
+```{r}
+# Exposure, outcome, and Covariates used (covariates selected based on associations with Asthma, and with nasal and/or gut microbiota based on Fig. S2A).
+Subj_dt <- c("BF_status_3m_sampling", "asthma_3y", "StudyCenter", "atbx", "birthmode2", "prenatal_smoke", "mom_asthma_ever", "coldsnum_0to3m", "older_sibs_living", "RE_Virus_1y", "older_sibs", "RE_Virus_3m", "age_3m_months", "age_1y_months") ## added some extra covariates not included in final analysis but checked in sensitivity analysis too
+
+### Merge Trajectories of individual taxa with Trajectory summary variables and metadata 
+## and make for Asthma 3 year analysis only (remove possible asthma)
+G_3m1y_asthm_traj_sdf <- merge(subset(Traj_data_ls$Metadata, select = Subj_dt), 
+                                change_3m1y_pa_Select, 
+                               by="row.names") %>%
+                          subset(., asthma_3y != "Possible" & 
+                                   !is.na(G_Monoglobus.sp.)) ### Subset for Gut microbome trajectory data only 
+
+names(G_3m1y_asthm_traj_sdf)[names(G_3m1y_asthm_traj_sdf) == "Row.names"] <- "CHILDid" # use correct name for this var
+
+## Extra check, number of non-missing values per variable - should be ~477 for gut 
+lapply(as.list(G_3m1y_asthm_traj_sdf), function(x) {sum(!is.na(x))})
+```
+
+## Check overlap b/t functional and taxonomic trajectory datasets and merge 
+Note that Functional data merged is only related to R. gnavus - may want to make a SEM unique to R. gnavus for functional data integration
+```{r}
+length(intersect(G_3m1y_asthm_traj_sdf$CHILDid, funcs_3M1Y_bin_diff_s$EggNog$subjectnumber))
+### N = 322 for this dataset
+
+# recall from data setup and panel A
+## sig late in both: late_overlap
+## 29 not sig late: ns_late_bf_rg
+#### of these the random 6 plotted in panel A: ns_late_bf_rg_sub
+## other labels used for R. gnavus functions: All_prev_summ
+## All R.g functions: 
+all_rg_func <- row.names(Res_per_taxa_ec_bf)[grepl("ruminococcus.gnavus$", row.names(Res_per_taxa_ec_bf))]
+
+# Taxa with EC trajs
+G_taxaEC_3m1y <- merge(G_3m1y_asthm_traj_sdf, 
+                                     subset(funcs_3M1Y_bin_diff_s$EC, 
+                                            select = c("subjectnumber", all_rg_func)),
+                                    by.x = "CHILDid", by.y = "subjectnumber")
+dim(G_taxaEC_3m1y) # n = 322
+
+
+# Also want to add R. gnavus species from metagenomic data to correlation check - quick addition (clean up later?)
+## Subset/melt: R. gnavus from taxonomic data
+sub_taxa <- Gut_3M1Y_all_filt %>% otu_table %>% t %>% as.data.frame %>% 
+                  subset(., select = c(taxa_select)) %>% data.frame(., subset(sample_data(Gut_3M1Y_all_filt), select = c("Visit", "subjectnumber"))) %>%
+                  mutate(Ruminococcus_gnavus = ifelse(Ruminococcus_gnavus > 0, 1, 0))
+sub_taxa_sp <- split(sub_taxa, sub_taxa$Visit) 
+
+sub_taxa_wide <- merge(sub_taxa_sp$`1 year`, sub_taxa_sp$`3 month`, by = "subjectnumber", suffixes = c("_1y", "_3m")) %>%
+                  mutate(Taxa_Rgnavus_traj = ifelse(Ruminococcus_gnavus_1y == 1 & Ruminococcus_gnavus_3m == 0, 1,
+                                                           ifelse(Ruminococcus_gnavus_1y == 0 & Ruminococcus_gnavus_3m == 1, -1, 0))
+                         )
+
+G_taxaEC_3m1y <- merge(G_taxaEC_3m1y, subset(sub_taxa_wide, select = c("subjectnumber", "Taxa_Rgnavus_traj")),
+                       by.x = "CHILDid", by.y = "subjectnumber")
+dim(G_taxaEC_3m1y) # same n good
+```
+
+# Correlation between colonization patterns of taxa significantly associated with asthma and BF, and EC functional trajectories associated with asthma and BF (all from R. gnavus)
+variable is the change in prevalence between timepoints (-1 = early, 0 = no change, 1= late/1 year only) used for PreTCo and SEMs 
+```{r}
+# note - have a function for this same correlation heatmap, may switch to later
+
+X <- subset(G_taxaEC_3m1y, select = c("Taxa_Rgnavus_traj", BF_asthma_sig_G, all_rg_func))
+colnames(X)[colnames(X) %in% BF_asthma_sig_G] <- gsub("^G_|^", "Taxa_", colnames(X)[colnames(X) %in% BF_asthma_sig_G])
+
+### term splitting within vs between group comp 
+differentiator <- "^Taxa_"
+
+cor_feat <- rcorr(as.matrix(X), type="spearman") 
+
+## Between-Feature Corr script ##
+
+cor_feat_2 <- cor_feat$r 
+cor_feat_2[lower.tri(cor_feat_2)] <- NA # just need upper triangle, removes duplicates
+
+# melt is from reshape2 package
+cor_feat_m <- melt(cor_feat_2, value.name = "corr") %>% subset(., !(Var1 == Var2))
+
+table_p_feat <- (as.matrix(cor_feat$P))
+table_p_feat[lower.tri(table_p_feat)] <- NA # just need upper triangle of matrix, removes duplicates
+#Note that P-val is additionally NA for correlations b/t the same covariate [unlike correlation coefficient which is 1]
+table_p_feat_m <- melt(table_p_feat, value.name = "p_val") %>% subset(., !(Var1 == Var2))
+
+table_n_feat <- (as.matrix(cor_feat$n))
+table_n_feat[lower.tri(table_n_feat)] <- NA 
+table_n_feat_m <- melt(table_n_feat, value.name = "n") %>% subset(., !(Var1 == Var2))
+
+
+corr_by_feature <- merge(cor_feat_m, table_p_feat_m, by = c("Var1", "Var2")) %>% 
+  merge(., table_n_feat_m, by = c("Var1", "Var2")) %>%  
+  subset(., !is.na(p_val)) %>% #where p-value = NA remove, not looking at these
+  mutate(diss = 1 - abs(corr),
+         Type1 = ifelse(grepl(differentiator, Var1), "Taxa", "Function"), ## "differentiator" group first 
+         Type2 = ifelse(grepl(differentiator, Var2), "Taxa", "Function"),
+         Comparison = ifelse(Type1 == Type2, "WithinGroup", "BetweenGroup"),  
+         Sig = ifelse(p_val < 0.001, "**", "") ## For now just using low thresh
+         ) 
+
+corr_between <- subset(corr_by_feature, Comparison == "BetweenGroup")
+```
+
+**Just check average correlation coefficients per overall group (not per each pairwise comparison!)**
+```{r}
+## Annotate based on whether function was later in both BF and asthma or not late with BF (Var2)
+corr_between$Var2_Cat <- ifelse(corr_between$Var2 %in% late_overlap, "Late, both BM and Asthma",
+                                ifelse(corr_between$Var2 %in% ns_late_bf_rg, "Not Late with BM", "Late, BM only"))
+corr_between$Var2_Cat  <- factor(corr_between$Var2_Cat,
+                                 levels = c("Not Late with BM", "Late, BM only", "Late, both BM and Asthma"))
+### n = 8 late w/t BF and Asthma, n = 30 not late with BF, n = 354 late BF only 
+
+# checking correlation w/t our R. gnavus otu specifically 
+data_summary_V2(subset(corr_between, Var1 == "Taxa_X.Ruminococcus..gnavus..sp."), varname = "corr", groupnames = c("Var2_Cat"))
+
+## also - checking overall summary 
+summary(subset(corr_between, Var1 == "Taxa_X.Ruminococcus..gnavus..sp.")$corr)
+boxplot(subset(corr_between, Var1 == "Taxa_X.Ruminococcus..gnavus..sp.")$corr)
+
+
+# The R. gnavus species in metagen data Taxa_Rgnavus_traj
+data_summary_V2(subset(corr_between, Var1 == "Taxa_Rgnavus_traj"), varname = "corr", groupnames = c("Var2_Cat"))
+
+## Also - cross-check contingency table for R. gnavus - 16S OTU and metagenomic species trajectories - line up really well
+table(G_taxaEC_3m1y$Taxa_Rgnavus_traj, G_taxaEC_3m1y$G_X.Ruminococcus..gnavus..sp.)
+chisq.test(table(G_taxaEC_3m1y$Taxa_Rgnavus_traj, G_taxaEC_3m1y$G_X.Ruminococcus..gnavus..sp.))
+```
+
+## Figure S8A - boxplots of correlations
+```{r}
+func_rgnavus_corr <- subset(corr_between, Var1 == "Taxa_Rgnavus_traj")
+pairwise.wilcox.test(func_rgnavus_corr$corr, func_rgnavus_corr$Var2_Cat)
+
+tiff(file = paste0(path, "Figures/Fig_S8A_RGnavusFuncTrajCorr.tiff"), width = 1800, height = 700, units = "px", res = 300)
+ggplot(func_rgnavus_corr, aes(x=Var2_Cat, y = corr)) + 
+  geom_violin(trim = FALSE, alpha=0) + 
+  stat_summary(fun=median, geom="point", shape=23, size=2, fill="black")  +
+  theme(axis.text = element_text(size=11), legend.position = "none", 
+        axis.title.x = element_text(face = "bold"), axis.title = element_text(size =12))  +
+  labs(y="Spearman's\ncorrelation coefficient", x="Delay in R. gnavus EC Functions with Breastfeeding and Asthma") + 
+  geom_signif(color="black", comparisons = list(c("Not Late with BM", "Late, BM only"), 
+                                                c("Not Late with BM", "Late, both BM and Asthma"),
+                                                c("Late, BM only", "Late, both BM and Asthma")),
+              test = "wilcox.test", step_increase = 0.2, vjust = 0.6,
+              map_signif_level = c("**"=0.001, "*"=0.05,"~"=0.1," "=2), size=0.3, textsize = 7) 
+dev.off()
+```
+
+
+## Figure S8C - correlations b/t metagenomic functional trajectories and the 16S colonization patterns found late w/t both asthma and BF
+**Move forward with main sub-analysis - selecting just those late w/t both BF and asthma, and the other random set of 6 from the 'Not Late with BF' group shown in Fig S9A**
+```{r}
+## also adding fdr correction to pvals, and add the cleaned annotation name for Var2 - same used for panel A - All_prev_summ
+## levels(All_prev_summ$variable_num)[2:length(levels(All_prev_summ$variable_num))]
+# df link - original names to labels
+df_link <- data.frame(Var2 = All_prev_summ$variable,
+                      variable_num = All_prev_summ$variable_num) %>% subset(., !duplicated(Var2) & Var2 != "Ruminococcus_gnavus")
+
+corr_between_2 <- corr_between %>% subset(., Var2 %in% c(late_overlap, ns_late_bf_rg_sub) & Var1 != "Taxa_Rgnavus_traj") %>% ##
+                    mutate(p_val_bh = p.adjust(p_val, method = "BH", n = nrow(corr_between)),
+                           Sig_bh = ifelse(p_val_bh < 0.01, "**", 
+                                            ifelse(p_val_bh < 0.05, "*", "")),
+                           Sig_2 = ifelse(p_val < 0.05 & p_val_bh >= 0.05, "~", ""),
+                           Var2 = gsub("_ruminococcus.gnavus$", "", Var2))  %>% 
+                    merge(., df_link, by = "Var2") %>%
+                    mutate(Lab1 = gsub("Taxa_|X\\.", "", Var1),
+                              # levels of funcs to match same as panel A
+                           Lab2 = factor(variable_num, 
+                                         levels = rev(levels(All_prev_summ$variable_num)[2:length(levels(All_prev_summ$variable_num))])),
+                           italic_x = gsub("\\.\\d{1,}$", "", Lab1),
+                          non_italic_x = ifelse(is.na(str_extract(Lab1, "\\d{1,}$") ), "", 
+                               str_extract(Lab1, "\\d{1,}$") )
+                           ) %>%
+         mutate(Lab1 = glue("<i>{italic_x}</i> {non_italic_x}"))
+table(corr_between_2$Lab1)
+
+# taxa name extra format edit
+corr_between_2$Lab1 <- corr_between_2$Lab1 %>% gsub("\\.\\.", " ", .) %>% gsub("\\.", " ", .) #%>% gsub(". ", " ", .)
+```
+
+```{r}
+## margins
+r <- 2 # right margin edit
+t <- 0.1 # top margin edit
+
+tiff(file = paste0(path, "Figures/Fig_S8C_FuncTaxaTrajCorr.tiff"), width = 2200, height = 1800, units = "px", res = 300)
+ggplot(corr_between_2, aes(Lab1, Lab2, fill=corr)) +
+  geom_tile(height=0.8, width=0.8) +
+  scale_fill_gradient2(low="#0056cf", mid="white",  high="#d63200", midpoint = 0) +
+  geom_text(aes(label=Sig_bh), size=6, nudge_y = -0.14) + 
+  geom_text(aes(label=Sig_2), size=5, nudge_y = 0.08) + 
+  theme(panel.spacing.x = unit(1, "mm"), axis.title = element_blank(), axis.ticks = element_blank(),
+        axis.text.x=element_markdown(size=10, angle=30, vjust=1, hjust=1, color = "black"),
+        axis.text.y=element_text(size=12, color = "black"), strip.text.x = element_blank()) + # plot.margin = unit(c(t, r, 0, 0), "cm")
+  labs(fill = "Spearman rho") 
+dev.off()
+```
+
+
+**Median Correlation values with these R. gnavus functions - per-taxa and stratified by association of functional trajectory with breastfeeding**
+```{r}
+kable(data_summary_V2(corr_between_2, "corr", "Lab1"))
+
+kable(data_summary_V2(corr_between_2, "corr", c("Var2_Cat", "Lab1")))
+```
+
+## Supplementary analysis to obtain p-values for change in prevalene by breastfeeding and asthma for metagenomic species - specifically R. gnavus, highlighted in Fig. S8B
+See Fig_3.Rmd and Fig_4.Rmd for main PreTCO analyses - scripts copied from there
+
+```{r}
+## Inputs, name of timepoint 1 and 2 variables, name of subject ID variable
+T1 <- "3 month"
+T2 <- "1 year"
+SubjID <- "subjectnumber"
+
+Gut_3M1Y_pa_filt <- transform_sample_counts(Gut_3M1Y_all_filt, function(abund) 1*(abund>0))
+
+G.pa.3m <- subset_samples(Gut_3M1Y_pa_filt, Visit == T1)
+G.pa.1y <- subset_samples(Gut_3M1Y_pa_filt, Visit == T2)
+```
+
+**Gut - Prevalence Trajectory derived variables, creation of a prevalence trajectory feature table**
+```{r} 
+# main script
+## extract otu table and use Participant IDs as row.names instead - will match b/t datasets
+G_3m_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.3m), "matrix"))), row.names=sample_data(G.pa.3m)[[SubjID]])
+G_1y_otu <- data.frame(as.data.frame(t(as(otu_table(G.pa.1y), "matrix"))), row.names=sample_data(G.pa.1y)[[SubjID]])
+
+G_3m_otu <- G_3m_otu[order(row.names(G_3m_otu)),]
+G_1y_otu <- G_1y_otu[order(row.names(G_1y_otu)),]
+
+## Checking - colnames and Childid's are in the same order? Yes - good - can move forward
+identical(colnames(G_3m_otu), colnames(G_1y_otu))
+identical(row.names(G_3m_otu), row.names(G_1y_otu))
+
+## 1 Year minus 3 Month Prevalence For each Taxa
+change_3m1y_pa_G <- G_1y_otu - G_3m_otu # -1 = present at 3m not 1y, 1= present at 1y not 3m, 0=either present at both or neither timpoint
+dim(change_3m1y_pa_G) # Same order as original physeq obj
+
+sdf_toAdd <- sample_data(G.pa.1y)[order(sample_data(G.pa.1y)[[SubjID]]),]
+## check that it's in the same order as change_3m1y_pa
+identical(row.names(change_3m1y_pa_G), as.character(sdf_toAdd[[SubjID]])) # order matches
+
+### same order so just merge data with sample metadata using data.frame
+change_3m1y_pa_G_sdf <- data.frame(change_3m1y_pa_G, sdf_toAdd) 
+
+N_taxa_G <- ncol(change_3m1y_pa_G) # number of taxa, to use in downstream code
+N_subj_G <- nrow(change_3m1y_pa_G) # number of subjects, to use in downstream code
+```
+
+### Asthma at 3 years 
+```{r} 
+## input 
+X <- subset(change_3m1y_pa_G_sdf, asthma_3y == "Yes")
+Y <- subset(change_3m1y_pa_G_sdf, asthma_3y == "No")
+
+# script
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],
+                    Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1],
+                    taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"),
+                    prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) 
+
+# difference in change
+df.pa$pa.change.diff <- df.pa$Y_P_Change - df.pa$X_P_Change
+
+
+perm_asthma_metagen_taxa <- perm_func_dfs_v2(X_df = df.pa, 
+                                  data = change_3m1y_pa_G_sdf,
+                                  variable = "asthma_3y", Group_X = "Yes", Group_Y = "No",
+                                  N = N_taxa_G) 
+
+perm_asthma_metagen_taxa$per_taxa_res %>% subset(., row.names(.) == "Ruminococcus_gnavus")
+```
+
+### Breastfeeding at 3 months
+```{r} 
+## input
+X <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "No BM")
+Y <- subset(change_3m1y_pa_G_sdf, BF_status_3m_sampling == "Exclusive")
+
+# Make data.frame of prevalence like before BUT keeping as proprotions instead of Percentages for now
+df.pa <- data.frame(X_P_Change=colSums(X[1:N_taxa_G])*100/dim(X)[1],
+                    Y_P_Change=colSums(Y[1:N_taxa_G])*100/dim(Y)[1],
+                    taxonomy=as(tax_table(Gut_3M1Y_pa_filt), "matrix"),
+                    prevalence=taxa_sums(Gut_3M1Y_pa_filt)*100/(N_subj_G*2)) # Taxonomy actually maintained compared to physeq obj, great
+
+# difference in change
+df.pa$pa.change.diff <- df.pa$Y_P_Change - df.pa$X_P_Change
+
+
+perm_bf_metagen_taxa <- perm_func_dfs_v2(X_df = df.pa, 
+                                  data = change_3m1y_pa_G_sdf,
+                                  variable = "BF_status_3m_sampling", 
+                                  Group_X = "No BM", Group_Y = "Exclusive",
+                                  N = N_taxa_G)
+
+perm_bf_metagen_taxa$per_taxa_res %>% subset(., row.names(.) == "Ruminococcus_gnavus")
+```
+
+
+
