@@ -1,0 +1,410 @@
+---
+title: "Generating the microbiome trajectory datasets used for the machine learning analysis, specific to Figure 6"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+R.version.string
+library(phyloseq); packageVersion('phyloseq')
+library(tidyr); packageVersion('tidyr')
+library(reshape2); packageVersion('reshape2')
+library(here)
+
+source(paste0(here::here(), "/Functions.R"))
+```
+
+```{r, echo=FALSE}
+## Load dataset, rarified version for presence-absense and relative based variables
+
+## used for prevalence-based analyses
+Rarefy <- readRDS(paste0(path, file="Data/Preprocessing/final_datasets/02_Rarefied_Merged_Milk_Nasal_Gut.rds"))
+ 
+
+## Adding extra variables that may be used
+sample_data(Rarefy)$Cold_Fever <- ifelse(sample_data(Rarefy)$Fever_3m == 0 & sample_data(Rarefy)$colds_0to3m == "Yes", 
+                                         "Cold without Fever",
+                                         ifelse(sample_data(Rarefy)$Fever_3m == 1 & sample_data(Rarefy)$colds_0to3m == "Yes",
+                                                "Cold & Fever",
+                                         ifelse(sample_data(Rarefy)$Fever_3m == 0 & sample_data(Rarefy)$colds_0to3m == "No",
+                                                "No Cold or Fever", 
+                                         ifelse(sample_data(Rarefy)$Fever_3m == 1 & sample_data(Rarefy)$colds_0to3m == "No", 
+                                                "No Cold, Fever", NA)))) 
+```
+
+# Sample filters and data transformation
+using same filters consistently vs other 'Processing' RMD files 
+
+### Remove infants without breastfeeding status information at the time of 3 month sample collection and only keep relevant time-points & sample types
+```{r}
+#  (exclude viral samples, 3 year and 5 year samples)
+Main_data <- subset_samples(Rarefy, (Name == "Nasal Swab Aliquot" | SampleType == "Gut") & 
+             !is.na(BF_status_3m_sampling) & ( SampleType == "Nasal" | SampleType == "Gut" | BF_status_3m_MS_sampling_exact != "No BM") &
+             Visit != "3 Years" & Visit != "5 Years") # includes filter that IF sample is a milk sample AND breastfeeding status and milk sampling is "No BM", then exclude.
+
+table(sample_data(Main_data)$Visit, sample_data(Main_data)$SampleType)
+
+# **Remove outliers for age at sampling, important particularly for longitudinal/paired analyses**
+Main_data2 <- subset_samples(Main_data, (Age_sampling < 8 & Age_sampling > 1 & Visit == "3 Months") | (Age_sampling < 21 & Age_sampling > 8 & Visit == "1 Year")) 
+
+# **Remove infants never ever breastfed, even in hospital**
+Main_data3 <- subset_samples(Main_data2, BF_status_3m_sampling2 != "Never breastfed") 
+
+table(sample_data(Main_data3)$Visit, sample_data(Main_data3)$SampleType)
+```
+Relativize
+```{r} 
+data_relative <- transform_sample_counts(Main_data3, function(x) x*100 / sum(x) )  
+```
+
+
+# Generating trajecotry / colonization pattern variables for paired datasets 
+
+Metadata and milk component variables retained in datasets downstream
+```{r} 
+# Test only the important variables tested in prevalence analysis. Additionally add milk composition factors and maternal BMI and age - analyze using spearman correlation.
+Main_vars <- c("CHILDid", "Shannon", "Observed", "RE_Virus", "WheezeTraj", "Cold_Fever", "asthma_3y", "asthma_5y", "atopy3y", "atopy5y", "AR_posprob_5y", "AR_posprob_3y", "AR_5y", "BM_mode_3m", "BF_status_3m_sampling", "BF_12m_sampling", "older_sibs", "AwayfromHome_1y", "childgender", "atbx", "Mom_abs_3mo_IV_oral_supp_yn", "Mother_abs_birth_yn", "StudyCenter", "birthmode2", "mom_bmi_best", "mom_age_birth", "Season_1y", "Season_3m", "age_1y_months", "age_3m_months", "prenatal_smoke", "gest_days", "weight_0", "weight_3", "Height", "race_mom4", "mom_asthma_ever", "mom_atopy", "Earinf_1y", "recwheeze5y", "asthma_posprob_3y", "asthma_posprob_5y", "AD_posprob_3y", "AD_posprob_5y","recwheeze1y","atopy1y", "colds_0to3m", "wheeze3m", "RI_cold_6m", "RI_cold_3m", "Fever_6m", "Fever_3m", "Fever_1y", "Solids_3m_sampling", "Smoked_AtHome3m", "Furry_Pets_3m") ## forgot to add prenatal smoke to prevaelnce analyses 
+
+### not tested with respect to change in diversity yet - to use spearman
+Milk_vars <- c("milk_adiponectin", "milk_insulin", "milk_leptin", "HMO_SUM_ug.mL", "Fuc_nmol.mL", "Sia_nmol.mL", "X2.FL_ug.mL",	"X3FL_ug.mL",	"LNnT_ug.mL",	"X3.SL_ug.mL",	"DFLac_ug.mL",	"X6.SL_ug.mL",	"LNT_ug.mL",	"LNFP.I_ug.mL",	"LNFP.II_ug.mL",	"LNFP.III_ug.mL",	"LSTb_ug.mL",	"LSTc_ug.mL",	"DFLNT_ug.mL", "LNH_ug.mL",	"DSLNT_ug.mL",	"FLNH_ug.mL",	"DFLNH_ug.mL",	"FDSLNH_ug.mL",	"DSLNH_ug.mL", "C10_0", "C12_0", "C14_0", "X14_1n9", "C15_0", "C16_0", "C16_1n9", "C17_0", "C18_0", "C18_1n9", "C18_1C11", "C18_2n6", "C20_0", "C18_3n6", "C18_3n3", "C20_2n6", "C20_3n6", "C20_4n6", "X20_4n3", "C20_5n3", "C24_0", "C24_1n9", "C22_4n6", "X22_5n6", "C22_5n3", "C22_6n3",  "CLA", "TVA", "milk_raw_Lactoferrin", "milk_raw_CD14", "milk_raw_IgE",  "milk_raw_IgG1", "milk_raw_IgG2", "milk_raw_IgG3", "milk_raw_IgG4", "milk_raw_IgM",  "milk_raw_GRO", "milk_raw_IL.8", "milk_raw_MDC", "milk_raw_Fractakine", "milk_raw_MCP.1", "milk_raw_IL.9", "milk_raw_EGF", "milk_raw_VEGF",  "milk_raw_IP.10", "milk_raw_CCL5","milk_raw_G.CSF", "milk_raw_IL.4", "milk_raw_IL.6", "milk_raw_TNF", "milk_raw_IL.33", "milk_raw_TSLP", "milk_raw_TLR2", "milk_raw_IgA", "milk_raw_TGF.b2", "milk_raw_TGF.b1","milk_norm_Lactoferrin", "milk_norm_CD14", "milk_norm_IgE", "milk_norm_IgG1", "milk_norm_IgG2", "milk_norm_IgG3", "milk_norm_IgG4", "milk_norm_IgM","milk_norm_GRO", "milk_norm_IL.8", "milk_norm_MDC", "milk_norm_Fractakine", "milk_norm_MCP.1", "milk_norm_IL.9", "milk_norm_EGF", "milk_norm_VEGF", "milk_norm_IP.10", "milk_norm_CCL5", "milk_norm_G.CSF", "milk_norm_IL.4","milk_norm_IL.6", "milk_norm_TNF","milk_norm_IL.33", "milk_norm_TSLP", "milk_norm_TLR2", "milk_norm_IgA", "milk_norm_TGF.b2", "milk_norm_TGF.b1", "total.lipid" )
+```
+
+
+## Nasal - 3M-1Y (N=1545) 
+### Data setup
+```{r}
+# Common Subject IDs between milk and nasal samples at 3 months
+Common_3m1yN <- intersect(sample_data(subset_samples(data_relative, Visit == "3 Months" & SampleType == "Nasal"))$CHILDid,
+                          sample_data(subset_samples(data_relative, Visit == "1 Year"  & SampleType == "Nasal"))$CHILDid)
+length(Common_3m1yN) # number of infants w/t both 3M and 1Y sample
+
+# Make dataset including these infants and taxa for 3 month & 1 year nasal
+Nasal_3m1y <- subset_samples(data_relative, SampleType == "Nasal" & (Visit == "3 Months" | Visit == "1 Year") & CHILDid %in% Common_3m1yN) # 1 year nasal
+Nasal_3m1y # 3090 samples, correct
+
+# Taxa we want - at least 10% of infants at 3m OR 1y Overall
+nasal_3m_tax_filt = filter_taxa(subset_samples(Nasal_3m1y, Visit =="3 Months"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+nasal_1y_tax_filt = filter_taxa(subset_samples(Nasal_3m1y, Visit =="1 Year"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+
+Nasal_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(nasal_3m_tax_filt, taxonomic.rank = "ASV_taxonomy"), get_taxa_unique(nasal_1y_tax_filt, taxonomic.rank = "ASV_taxonomy")), Nasal_3m1y) # This filter isn't working properly...try a different filter method. NOTE that there is overlap in taxa b/t these 2 lists so the number in the final DF will be less
+
+# make p/a version
+Nasal_3M1Y_pa_filt <- transform_sample_counts(Nasal_3M1Y_all_filt, function(abund) 1*(abund>0))
+Nasal_3M1Y_pa_filt
+```
+
+### Nasal prevalence trajectory dataset
+```{r}
+Nasal_3M_pa_filt <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "3 Months")
+Nasal_1y_pa_filt <- subset_samples(Nasal_3M1Y_pa_filt, Visit == "1 Year")
+
+# using dataset with all 3 month and 1 year gut and nasal samples for now - same infants in all datasets to reduce variation 
+N_3m_otu <- as.data.frame(t(as(otu_table(Nasal_3M_pa_filt), "matrix")))
+N_1y_otu <- as.data.frame(t(as(otu_table(Nasal_1y_pa_filt), "matrix")))
+
+N_3m_otu_sdf <- data.frame(N_3m_otu, CHILDid=sample_data(Nasal_3M_pa_filt)$CHILDid)
+N_1y_otu_sdf <- data.frame(N_1y_otu, CHILDid=sample_data(Nasal_1y_pa_filt)$CHILDid)
+
+## don't like how data.frame function changed the column names, changing back
+colnames(N_3m_otu_sdf)[1:ncol(N_3m_otu)] <- colnames(N_3m_otu)
+colnames(N_1y_otu_sdf)[1:ncol(N_1y_otu)] <- colnames(N_1y_otu)
+
+N_3m_otu_sdf <- N_3m_otu_sdf[order(N_3m_otu_sdf$CHILDid),]
+N_1y_otu_sdf <- N_1y_otu_sdf[order(N_1y_otu_sdf$CHILDid),]
+
+identical(N_3m_otu_sdf$CHILDid, N_1y_otu_sdf$CHILDid) # good
+```
+
+The 4x colonization patter otu table for Nasal
+```{r}
+N_3m_otu_sdf_m <- melt(N_3m_otu_sdf, id.vars = "CHILDid", value.name = "Present_nasal_3m")
+N_1y_otu_sdf_m <- melt(N_1y_otu_sdf, id.vars = "CHILDid", value.name = "Present_nasal_1y")
+dim(N_1y_otu_sdf_m) # 264195
+
+N_3m1y_otu_sdf_m <- merge(N_3m_otu_sdf_m, N_1y_otu_sdf_m, by= c("CHILDid", "variable"))
+dim(N_3m1y_otu_sdf_m) # 264195
+
+# Nasal
+N_3m1y_otu_sdf_m$Nasal_colonization <- ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 1 & 
+                                                N_3m1y_otu_sdf_m$Present_nasal_1y == 1, 2,
+                                              ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 1 & 
+                                                       N_3m1y_otu_sdf_m$Present_nasal_1y == 0, 1, 
+                                                     ifelse(N_3m1y_otu_sdf_m$Present_nasal_3m == 0 & 
+                                                              N_3m1y_otu_sdf_m$Present_nasal_1y == 1, 3, 0))) 
+# CODE: 0=absent, 1=early only, 2 = persistent, 3=late,  only 4 possible options
+table(N_3m1y_otu_sdf_m$Nasal_colonization)
+
+N3M1Y_colonize <- dcast(N_3m1y_otu_sdf_m, CHILDid~variable, value.var = "Nasal_colonization", mean)
+dim(N3M1Y_colonize)  # 1545 infants with both time-points, 172 OTUs 
+```
+
+### Make sdf with derived variables for change in diversity
+```{r} 
+# Overall 3 mnth and 1 year sample data (already split up)
+sdf_1y_n <- as.data.frame(sample_data(Nasal_1y_pa_filt)) 
+row.names(sdf_1y_n) <- sdf_1y_n$CHILDid
+sdf_3m_n <- as.data.frame(sample_data(Nasal_3M_pa_filt))
+row.names(sdf_3m_n) <- sdf_3m_n$CHILDid
+
+sdf_1y_n_sub <- subset(sdf_1y_n, select = c(Main_vars, Milk_vars))
+sdf_3m_n_sub <- subset(sdf_3m_n, select = c(Main_vars, Milk_vars))
+
+# Modify Diversity, correspond to sample/timepoint 
+sdf_1y_n_sub$Observed_N1y <- sdf_1y_n_sub$Observed
+sdf_1y_n_sub$Shannon_N1y <- sdf_1y_n_sub$Shannon
+sdf_1y_n_sub$Observed <- NULL
+sdf_1y_n_sub$Shannon <- NULL
+
+sdf_3m_n_sub$Observed_N3m <- sdf_3m_n_sub$Observed
+sdf_3m_n_sub$Shannon_N3m <- sdf_3m_n_sub$Shannon
+sdf_3m_n_sub$Observed <- NULL
+sdf_3m_n_sub$Shannon <- NULL
+
+## Also modify RE_Virus, only need different variables for 3 months and 1 year (will be the same for different sample types of the same sampling timepoint)
+sdf_1y_n_sub$RE_Virus_1y <- sdf_1y_n_sub$RE_Virus
+sdf_3m_n_sub$RE_Virus_3m <- sdf_3m_n_sub$RE_Virus
+sdf_1y_n_sub$RE_Virus <- NULL
+sdf_3m_n_sub$RE_Virus <- NULL
+
+# these will be replicated because they are present in all datasets - remove from all but one dataset before merge so they aren't replicated
+shared_vars <- intersect(colnames(sdf_3m_n_sub), colnames(sdf_1y_n_sub))
+
+sdf_1y_n_sub2 <- subset(sdf_1y_n_sub, select = colnames(sdf_1y_n_sub) %ni% shared_vars) # choose those NOT replicated
+### variables that are the same for each df will be kept in: sdf_3m_n_sub
+
+sdf_N <- merge(sdf_3m_n_sub, sdf_1y_n_sub2, by="row.names")
+dim(sdf_N)
+
+row.names(sdf_N) <- sdf_N$Row.names
+sdf_N$Row.names <- NULL
+dim(sdf_N)
+
+# Derive variables: Difference in diversity b/t 3 months and 1 year
+sdf_N$Shannon_N1y3m <- sdf_N$Shannon_N1y - sdf_N$Shannon_N3m
+summary(sdf_N$Shannon_N1y3m) # most increase but some decrease 
+
+sdf_N$Observed_N1y3m <- sdf_N$Observed_N1y - sdf_N$Observed_N3m
+summary(sdf_N$Observed_N1y3m)
+```
+
+### Merge the prevalence trajectory OTU table and colonization patterns with sdf
+```{r}
+# Merge with Wide dataframe (regular, for statisitcal tests, rows=participants)
+N_3m1y_otu_sdf2 <- merge(sdf_N, N3M1Y_colonize, by="CHILDid") # merging with sample data
+dim(N_3m1y_otu_sdf2)
+```
+
+### Make and merge the change in abundance OTU table with sdf
+```{r}
+# Non-prevalence version of Nasal_3M1Y_pa_filt: Nasal_3M1Y_all_filt
+Nasal_3M1Y_filt_3m <- subset_samples(Nasal_3M1Y_all_filt, Visit == "1 Year")
+
+Nasal_3M1Y_filt_1y <- subset_samples(Nasal_3M1Y_all_filt, Visit == "3 Months")
+
+Nasal_3M1Y_filt_3m_df <- data.frame(t(as(otu_table(Nasal_3M1Y_filt_3m), "matrix")), CHILDid=sample_data(Nasal_3M1Y_filt_3m)$CHILDid)
+Nasal_3M1Y_filt_1y_df <- data.frame(t(as(otu_table(Nasal_3M1Y_filt_1y), "matrix")), CHILDid=sample_data(Nasal_3M1Y_filt_1y)$CHILDid)
+
+# Order them by CHILDid and then subtract 1y - 3m
+Nasal_3M1Y_filt_3m_df <- Nasal_3M1Y_filt_3m_df[order(Nasal_3M1Y_filt_3m_df$CHILDid),]
+Nasal_3M1Y_filt_1y_df <- Nasal_3M1Y_filt_1y_df[order(Nasal_3M1Y_filt_1y_df$CHILDid),]
+
+## now subtract col 1 1y - col 1 3m, etc.
+### columns and rows are in the exact same order so this works
+sum(eval(colnames(Nasal_3M1Y_filt_1y_df) == colnames(Nasal_3M1Y_filt_3m_df))==FALSE) # good
+
+Nasal_3M1Y_change_df <- data.frame(Nasal_3M1Y_filt_1y_df[1:ntaxa(Nasal_3M1Y_all_filt)] - Nasal_3M1Y_filt_3m_df[1:ntaxa(Nasal_3M1Y_all_filt)], CHILDid=Nasal_3M1Y_filt_1y_df$CHILDid)
+dim(Nasal_3M1Y_change_df) # Modify column names to indicate these are change in abundance
+colnames(Nasal_3M1Y_change_df)[1:ntaxa(Nasal_3M1Y_all_filt)] <- gsub("$", "_1y3m_change",
+                                                                     colnames(Nasal_3M1Y_change_df)[1:ntaxa(Nasal_3M1Y_all_filt)])
+
+# Additionally need to use LOG2 fold change - otherwise if using the actual scale of the change to measure the difference between groups, just the more abundant taxa will be seen
+## need to add a very small constant to each value in order for this to work. Note that relative change (x2-x1)/x1 could also work except that it leads to really massive looking differences when the initial value is really low or 0 (e.g. max is 408619613 for Veillonella.sp..1 when attempted)
+Nasal_3M1Y_filt_3m_const <- (Nasal_3M1Y_filt_3m_df[1:ntaxa(Nasal_3M1Y_all_filt)] + 0.0000001) 
+Nasal_3M1Y_filt_1y_const <- (Nasal_3M1Y_filt_1y_df[1:ntaxa(Nasal_3M1Y_all_filt)] + 0.0000001)
+
+## (final value - initial value) / initial value
+Nasal_3M1Y_change_df2 <- data.frame(Nasal_3M1Y_change_df, log2(Nasal_3M1Y_filt_1y_const/Nasal_3M1Y_filt_3m_const))
+colnames(Nasal_3M1Y_change_df2)[(ncol(Nasal_3M1Y_change_df)+1):ncol(Nasal_3M1Y_change_df2)] <- gsub("$", "_1y3m_Log2change", colnames(Nasal_3M1Y_change_df2)[(ncol(Nasal_3M1Y_change_df)+1):ncol(Nasal_3M1Y_change_df2)])
+summary(Nasal_3M1Y_change_df2$Veillonella.sp..1_1y3m_Log2change) # Log2 fold change much more reasonable for right skewed relative abudnance data compared to relative change.
+
+# Merge with wide dataframe for change in diversity/colonization pattern sdf
+colnames(Nasal_3M1Y_change_df2)
+N_3m1y_otu_sdf3 <- merge(N_3m1y_otu_sdf2, Nasal_3M1Y_change_df2, by="CHILDid")
+dim(N_3m1y_otu_sdf3)
+```
+
+
+## Gut 3M-1Y (555)
+### Data setup
+```{r}
+# Common Subject IDs between milk and nasal samples at 3 months
+Common_3m1yG <- intersect(sample_data(subset_samples(data_relative, Visit == "3 Months" & SampleType == "Gut"))$CHILDid,
+                          sample_data(subset_samples(data_relative, Visit == "1 Year"  & SampleType == "Gut"))$CHILDid)
+length(Common_3m1yG) # number of infants w/t both 3M and 1Y sample
+
+# Make dataset including these infants and taxa for 3 month & 1 year nasal
+Gut_3m1y <- subset_samples(data_relative, SampleType == "Gut" & (Visit == "3 Months" | Visit == "1 Year") & CHILDid %in% Common_3m1yG) # 1 year nasal
+Gut_3m1y # 1110 samples, correct
+
+# Taxa we want - at least 10% of infants at 3m OR 1y Overall
+Gut_3m_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="3 Months"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+Gut_1y_tax_filt = filter_taxa(subset_samples(Gut_3m1y, Visit =="1 Year"), function(x) sum(x > 0) > (0.10*length(x)), TRUE)
+
+Gut_3M1Y_all_filt <- prune_taxa(c(get_taxa_unique(Gut_3m_tax_filt, taxonomic.rank = "ASV_taxonomy"), get_taxa_unique(Gut_1y_tax_filt, taxonomic.rank = "ASV_taxonomy")), Gut_3m1y) # This filter isn't working properly...try a different filter method. NOTE that there is overlap in taxa b/t these 2 lists so the number in the final DF will be less
+
+# make p/a version
+Gut_3M1Y_pa_filt <- transform_sample_counts(Gut_3M1Y_all_filt, function(abund) 1*(abund>0))
+Gut_3M1Y_pa_filt 
+```
+
+### Gut prevaelnce trajecotry dataset
+```{r}
+Gut_3M_pa_filt <- subset_samples(Gut_3M1Y_pa_filt, Visit == "3 Months")
+Gut_1y_pa_filt <- subset_samples(Gut_3M1Y_pa_filt, Visit == "1 Year")
+
+# using dataset with all 3 month and 1 year gut and nasal samples for now - same infants in all datasets to reduce variation 
+G_3m_otu <- as.data.frame(t(as(otu_table(Gut_3M_pa_filt), "matrix")))
+G_1y_otu <- as.data.frame(t(as(otu_table(Gut_1y_pa_filt), "matrix")))
+
+G_3m_otu_sdf <- data.frame(G_3m_otu, CHILDid=sample_data(Gut_3M_pa_filt)$CHILDid)
+G_1y_otu_sdf <- data.frame(G_1y_otu, CHILDid=sample_data(Gut_1y_pa_filt)$CHILDid)
+
+## don't like how data.frame function changed the column names, changing back
+colnames(G_3m_otu_sdf)[1:ncol(G_3m_otu)] <- colnames(G_3m_otu)
+colnames(G_1y_otu_sdf)[1:ncol(G_1y_otu)] <- colnames(G_1y_otu)
+
+G_3m_otu_sdf <- G_3m_otu_sdf[order(G_3m_otu_sdf$CHILDid),]
+G_1y_otu_sdf <- G_1y_otu_sdf[order(G_1y_otu_sdf$CHILDid),]
+
+identical(G_3m_otu_sdf$CHILDid, G_1y_otu_sdf$CHILDid) # good
+```
+
+The 4x colonization patter otu table for Nasal
+```{r}
+G_3m_otu_sdf_m <- melt(G_3m_otu_sdf, id.vars = "CHILDid", value.name = "Present_gut_3m")
+G_1y_otu_sdf_m <- melt(G_1y_otu_sdf, id.vars = "CHILDid", value.name = "Present_gut_1y")
+dim(G_1y_otu_sdf_m) # 63825
+
+G_3m1y_otu_sdf_m <- merge(G_3m_otu_sdf_m, G_1y_otu_sdf_m, by= c("CHILDid", "variable"))
+dim(G_3m1y_otu_sdf_m) # 63825
+
+G_3m1y_otu_sdf_m$Gut_colonization <- ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 1 & 
+                                              G_3m1y_otu_sdf_m$Present_gut_1y == 1, 2, 
+                                            ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 1 & 
+                                                     G_3m1y_otu_sdf_m$Present_gut_1y == 0, 1, 
+                                                   ifelse(G_3m1y_otu_sdf_m$Present_gut_3m == 0 & 
+                                                            G_3m1y_otu_sdf_m$Present_gut_1y == 1, 3, 0))) 
+# CODE: 0=absent, 1=early only, 2 = persistent, 3=late,  only 4 possible options
+
+G3M1Y_colonize <- dcast(G_3m1y_otu_sdf_m, CHILDid~variable, value.var = "Gut_colonization", mean)
+dim(G3M1Y_colonize)  # 555 infants with both time-points
+```
+
+### Make sdf with derived variables for change in diversity
+```{r} 
+# Overall 3 mnth and 1 year sample data (already split up)
+sdf_1y_n <- as.data.frame(sample_data(Gut_1y_pa_filt))  
+row.names(sdf_1y_n) <- sdf_1y_n$CHILDid
+sdf_3m_n <- as.data.frame(sample_data(Gut_3M_pa_filt))
+row.names(sdf_3m_n) <- sdf_3m_n$CHILDid
+
+sdf_1y_n_sub <- subset(sdf_1y_n, select = c(Main_vars, Milk_vars))
+sdf_3m_n_sub <- subset(sdf_3m_n, select = c(Main_vars, Milk_vars))
+
+# Modify Diversity, correspond to sample/timepoint 
+sdf_1y_n_sub$Observed_G1y <- sdf_1y_n_sub$Observed
+sdf_1y_n_sub$Shannon_G1y <- sdf_1y_n_sub$Shannon
+sdf_1y_n_sub$Observed <- NULL
+sdf_1y_n_sub$Shannon <- NULL
+
+sdf_3m_n_sub$Observed_G3m <- sdf_3m_n_sub$Observed
+sdf_3m_n_sub$Shannon_G3m <- sdf_3m_n_sub$Shannon
+sdf_3m_n_sub$Observed <- NULL
+sdf_3m_n_sub$Shannon <- NULL
+
+## Also modify RE_Virus, only need different variables for 3 months and 1 year 
+sdf_1y_n_sub$RE_Virus_1y <- sdf_1y_n_sub$RE_Virus
+sdf_3m_n_sub$RE_Virus_3m <- sdf_3m_n_sub$RE_Virus
+sdf_1y_n_sub$RE_Virus <- NULL
+sdf_3m_n_sub$RE_Virus <- NULL
+
+
+# these will be replicated because they are present in all datasets - remove from all but one dataset before merge so they aren't replicated
+shared_vars <- intersect(colnames(sdf_3m_n_sub), colnames(sdf_1y_n_sub))
+shared_vars 
+
+sdf_1y_n_sub2 <- subset(sdf_1y_n_sub, select = colnames(sdf_1y_n_sub) %ni% shared_vars) # choose those NOT replicated
+### variables that are the same for each df will be kept in: sdf_3m_n_sub
+
+sdf_G <- merge(sdf_3m_n_sub, sdf_1y_n_sub2, by="row.names")
+dim(sdf_G)
+
+row.names(sdf_G) <- sdf_G$Row.names
+sdf_G$Row.names <- NULL
+dim(sdf_G)
+
+# Derive variables: Difference in diversity b/t 3 months and 1 year
+sdf_G$Shannon_G1y3m <- sdf_G$Shannon_G1y - sdf_G$Shannon_G3m
+summary(sdf_G$Shannon_G1y3m) # most increase but some decrease 
+
+sdf_G$Observed_G1y3m <- sdf_G$Observed_G1y - sdf_G$Observed_G3m
+summary(sdf_G$Observed_G1y3m)
+```
+
+###Merge the prevalence trajectory OTU table with sdf
+```{r}
+# Merge with Wide dataframe (regular, for statisitcal tests, rows=participants)
+G_3m1y_otu_sdf2 <- merge(sdf_G, G3M1Y_colonize, by="CHILDid") # merging with sample data
+dim(G_3m1y_otu_sdf2)
+```
+
+### Make and merge the change in abundance OTU table with sdf
+```{r}
+# Non-prevalence version: Gut_3M1Y_all_filt
+Gut_3M1Y_all_filt_3m <- subset_samples(Gut_3M1Y_all_filt, Visit == "1 Year")
+
+Gut_3M1Y_all_filt_1y <- subset_samples(Gut_3M1Y_all_filt, Visit == "3 Months")
+
+Gut_3M1Y_filt_3m_df <- data.frame(t(as(otu_table(Gut_3M1Y_all_filt_3m), "matrix")), CHILDid=sample_data(Gut_3M1Y_all_filt_3m)$CHILDid)
+Gut_3M1Y_filt_1y_df <- data.frame(t(as(otu_table(Gut_3M1Y_all_filt_1y), "matrix")), CHILDid=sample_data(Gut_3M1Y_all_filt_1y)$CHILDid)
+
+# Order them by CHILDid and then subtract 1y - 3m
+Gut_3M1Y_filt_3m_df <- Gut_3M1Y_filt_3m_df[order(Gut_3M1Y_filt_3m_df$CHILDid),]
+Gut_3M1Y_filt_1y_df <- Gut_3M1Y_filt_1y_df[order(Gut_3M1Y_filt_1y_df$CHILDid),]
+
+## now subtract col 1 1y - col 1 3m, etc.
+### columns and rows are in the exact same order so this works
+sum(eval(colnames(Gut_3M1Y_filt_1y_df) == colnames(Gut_3M1Y_filt_3m_df))==FALSE) # good
+
+Gut_3M1Y_change_df <- data.frame(Gut_3M1Y_filt_1y_df[1:ntaxa(Gut_3M1Y_all_filt)] - Gut_3M1Y_filt_3m_df[1:ntaxa(Gut_3M1Y_all_filt)], CHILDid=Gut_3M1Y_filt_1y_df$CHILDid)
+dim(Gut_3M1Y_change_df) # Modify column names to indicate these are change in abundance
+colnames(Gut_3M1Y_change_df)[1:ntaxa(Gut_3M1Y_all_filt)] <- gsub("$", "_1y3m_change", 
+                                                                 colnames(Gut_3M1Y_change_df)[1:ntaxa(Gut_3M1Y_all_filt)])
+
+
+# Additionally need to use LOG2 fold change - otherwise if using the actual scale of the change to measure the difference between groups, just the more abundant taxa will be seen
+## need to add a very small constant to each value in order for this to work. OR could impute data with zCompositions package. Note that relative change (x2-x1)/x1 could also work except that it leads to really massive looking differences when the initial value is really low or 0 (e.g. max is 408619613 for Veillonella.sp..1 when attempted)
+Gut_3M1Y_filt_3m_df_const <- (Gut_3M1Y_filt_3m_df[1:ntaxa(Gut_3M1Y_all_filt)] + 0.0000001) 
+Gut_3M1Y_filt_1y_df_const <- (Gut_3M1Y_filt_1y_df[1:ntaxa(Gut_3M1Y_all_filt)] + 0.0000001)
+
+## (final value - initial value) / initial value
+Gut_3M1Y_change_df2 <- data.frame(Gut_3M1Y_change_df, log2(Gut_3M1Y_filt_1y_df_const/Gut_3M1Y_filt_3m_df_const)) 
+colnames(Gut_3M1Y_change_df2)[(ncol(Gut_3M1Y_change_df)+1):ncol(Gut_3M1Y_change_df2)] <- gsub("$", "_1y3m_Log2change",
+                                                                        colnames(Gut_3M1Y_change_df2)[(ncol(Gut_3M1Y_change_df)+1):ncol(Gut_3M1Y_change_df2)])
+
+# Merge with wide dataframe for change in diversity/colonization pattern sdf
+colnames(Gut_3M1Y_change_df2)
+G_3m1y_otu_sdf3 <- merge(G_3m1y_otu_sdf2, Gut_3M1Y_change_df2, by="CHILDid")
+dim(G_3m1y_otu_sdf3)
+```
+Note that though the input of the log2 fold change was percentages, the log2 fold change is not in percent itself - needs to be x100 for that (note that the log2 fold change in % can and often is >100%)
+
+# SAVE datasets containing change in diversity, colonization patterns & change in abundance 
+```{r}
+# Wide format (Row = Participant), summary of sample data 
+write.csv(N_3m1y_otu_sdf3, file=paste0(path, "Data/Data_subsets/Nasal_DivChange_ColPat_N1545_Wide_Summarized.csv")) 
+write.csv(G_3m1y_otu_sdf3, file=paste0(path, "Data/Data_subsets/Gut_DivChange_ColPat_N555_Wide_Summarized.csv"))
+```
+
